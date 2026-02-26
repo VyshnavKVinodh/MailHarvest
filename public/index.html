@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MailHarvest — Smart Email Contact Extractor</title>
+  <meta name="description"
+    content="MailHarvest extracts emails, names, and designations from website domains. Export results as Excel.">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <div class="bg-orbs">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+
+  <div class="container">
+    <section class="hero" id="hero">
+      <div class="hero-badge">Smart Contact Extraction Tool</div>
+
+      <div class="hero-logo">
+        <img src="favicon.svg" alt="MailHarvest Logo" width="72" height="72">
+      </div>
+
+      <h1 class="hero-title">
+        Mail<span class="gradient-text">Harvest</span>
+      </h1>
+      <p class="hero-subtitle">
+        Extract emails, names &amp; designations from any website domain — then validate every email for deliverability.
+      </p>
+
+      <!-- How It Works -->
+      <div class="steps-section">
+        <h2 class="steps-heading">How It Works</h2>
+        <div class="steps-grid">
+          <div class="step-card">
+            <div class="step-number">1</div>
+            <div class="step-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <path
+                  d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              </svg>
+            </div>
+            <h3>Add Domains</h3>
+            <p>Type website domains one by one (e.g. <strong>example.com</strong>) and click <strong>Add</strong>. Add
+              as many as you need.</p>
+          </div>
+
+          <div class="step-card">
+            <div class="step-number">2</div>
+            <div class="step-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.35-4.35" />
+              </svg>
+            </div>
+            <h3>Scrape &amp; Validate</h3>
+            <p>Click <strong>Start Scraping</strong> and watch live progress. Then <strong>validate</strong> emails to
+              check if they're real, catch-all, or invalid.</p>
+          </div>
+
+          <div class="step-card">
+            <div class="step-number">3</div>
+            <div class="step-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+            </div>
+            <h3>Export to Excel</h3>
+            <p>Select the contacts you need using checkboxes, then click <strong>Download Excel</strong> to get a
+              formatted <code>.xlsx</code> file.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Validation Feature Highlight -->
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            <path d="m9 12 2 2 4-4" />
+          </svg>
+        </div>
+        <div>
+          <h3>Built-in Email Validation</h3>
+          <p>Every scraped email can be verified against real mail servers. MailHarvest checks DNS records, tests
+            deliverability, detects catch-all domains, and suggests fixes for invalid addresses.</p>
+        </div>
+      </div>
+
+      <!-- Tips -->
+      <div class="tips-card">
+        <h3>💡 Tips for Best Results</h3>
+        <ul>
+          <li>Enter <strong>just the domain</strong> — no need for <code>https://</code> or trailing slashes</li>
+          <li>MailHarvest prioritizes <strong>About, Team, Contact</strong> pages automatically</li>
+          <li>For large batches (10+ domains), scraping may take a few minutes — progress updates live</li>
+          <li>Use <strong>Validate Emails</strong> after scraping to check which emails are real</li>
+          <li>Invalid emails show <strong>smart suggestions</strong> for corrections</li>
+        </ul>
+      </div>
+
+      <a href="scraper.html" class="btn btn-primary btn-hero" id="getStartedBtn">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12h14M12 5l7 7-7 7" />
+        </svg>
+        Get Started
+      </a>
+    </section>
+
+    <footer class="footer">
+      <img src="favicon.svg" alt="" width="18" height="18" style="opacity:0.5;vertical-align:middle;margin-right:6px">
+      <span>MailHarvest &mdash; Smart Email Contact Extractor</span>
+    </footer>
+  </div>
+</body>
+
+</html>

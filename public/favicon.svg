@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8b5cf6"/>
+      <stop offset="50%" style="stop-color:#6366f1"/>
+      <stop offset="100%" style="stop-color:#14b8a6"/>
+    </linearGradient>
+    <linearGradient id="envGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.95"/>
+      <stop offset="100%" style="stop-color:#e0e7ff;stop-opacity:0.9"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect width="512" height="512" rx="96" ry="96" fill="url(#bg)"/>
+  <!-- Envelope body -->
+  <rect x="96" y="176" width="320" height="220" rx="24" fill="url(#envGrad)" opacity="0.95"/>
+  <!-- Envelope flap (V shape) -->
+  <path d="M96 200 L256 320 L416 200" fill="none" stroke="white" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+  <!-- Magnifying glass -->
+  <circle cx="370" cy="150" r="55" fill="none" stroke="white" stroke-width="18" opacity="0.85"/>
+  <line x1="406" y1="190" x2="440" y2="228" stroke="white" stroke-width="18" stroke-linecap="round" opacity="0.85"/>
+  <!-- @ symbol in magnifier -->
+  <text x="370" y="162" text-anchor="middle" font-family="Arial, sans-serif" font-size="52" font-weight="bold" fill="white" opacity="0.8">@</text>
+  <!-- Small sparkle dots -->
+  <circle cx="140" cy="120" r="6" fill="white" opacity="0.5"/>
+  <circle cx="180" cy="100" r="4" fill="white" opacity="0.4"/>
+  <circle cx="160" cy="140" r="3" fill="white" opacity="0.3"/>
+</svg>

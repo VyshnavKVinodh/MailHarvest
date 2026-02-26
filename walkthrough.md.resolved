@@ -1,0 +1,56 @@
+# MailHarvest v3 — Walkthrough
+
+## What Changed
+
+| Area | Change |
+|------|--------|
+| **Navigation** | Split into 2 pages: landing → scraper (no more scrolling) |
+| **Email Validation** | DNS MX + SMTP RCPT TO + catch-all detection |
+| **Suggestions** | Typo fixes, domain corrections, re-scrape hints for invalid emails |
+| **Export** | Excel now includes Validation Status + Validation Note columns |
+| **Status Filter** | Filter table by Valid / Catch-All / Invalid / Unchecked |
+
+## Two-Page Flow
+
+````carousel
+![Home Page — landing with instructions, validation feature, and Get Started link](C:/Users/vyshn/.gemini/antigravity/brain/cf444a71-663e-4818-9143-cdc0f32a5259/mailharvest_home_page_v3_top_1772086049380.png)
+<!-- slide -->
+![Scraper Page — separate page with domain input, no landing content](C:/Users/vyshn/.gemini/antigravity/brain/cf444a71-663e-4818-9143-cdc0f32a5259/mailharvest_scraper_page_v3_1772086060051.png)
+<!-- slide -->
+![Domain chip added, Start Scraping enabled](C:/Users/vyshn/.gemini/antigravity/brain/cf444a71-663e-4818-9143-cdc0f32a5259/mailharvest_domain_added_v3_1772086087171.png)
+````
+
+## Email Validation System
+
+After scraping, click **Validate Emails** to check each email:
+
+| Status | Meaning |
+|--------|---------|
+| **✓ Valid** | MX records exist & SMTP confirmed deliverable |
+| **⚠ Catch-All** | Domain accepts all addresses — individual mailbox unverifiable |
+| **✗ Invalid** | No MX records, SMTP rejected, or domain typo detected |
+
+For **invalid** emails, click the status badge to see:
+- **Typo corrections** — `gmial.com` → `gmail.com` (80+ known typos)
+- **Similar domains** — Levenshtein distance matching to known providers
+- **Re-scrape suggestion** — when the email may have been extracted incorrectly
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| [validator.js](file:///c:/Users/vyshn/OneDrive/Desktop/PPA/LP/HimSoftLP/Scraper/validator.js) | DNS MX + SMTP + catch-all + suggestions engine |
+| [index.html](file:///c:/Users/vyshn/OneDrive/Desktop/PPA/LP/HimSoftLP/Scraper/public/index.html) | Landing page only |
+| [scraper.html](file:///c:/Users/vyshn/OneDrive/Desktop/PPA/LP/HimSoftLP/Scraper/public/scraper.html) | Separate scraper + validation page |
+| [scraper.js](file:///c:/Users/vyshn/OneDrive/Desktop/PPA/LP/HimSoftLP/Scraper/public/scraper.js) | Client logic for scraping + validation SSE |
+| [server.js](file:///c:/Users/vyshn/OneDrive/Desktop/PPA/LP/HimSoftLP/Scraper/server.js) | Added `/api/validate-stream` SSE endpoint |
+| [style.css](file:///c:/Users/vyshn/OneDrive/Desktop/PPA/LP/HimSoftLP/Scraper/public/style.css) | Added validation badges, summary cards, panel |
+
+## Verified
+- ✅ Home page → Get Started navigates to scraper.html (separate page)
+- ✅ Scraper page → Home link navigates back to index.html
+- ✅ Domain chips render and Start Scraping enables
+- ✅ Server starts with both SSE endpoints
+- ✅ Validation CSS renders correctly (badges, summary cards, panel)
+
+![Full v3 flow recording](C:/Users/vyshn/.gemini/antigravity/brain/cf444a71-663e-4818-9143-cdc0f32a5259/v3_multipage_test_1772086028016.webp)
