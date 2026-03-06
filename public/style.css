@@ -558,6 +558,34 @@ input[type="text"]:focus {
   font-weight: 400;
 }
 
+/* ── Domain Chips (scrollable) ─────────────────────────────────── */
+.domain-chips {
+  max-height: 160px;
+  overflow-y: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+  padding-right: 0.25rem;
+}
+
+.domain-chips::-webkit-scrollbar {
+  width: 5px;
+}
+
+.domain-chips::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.domain-chips::-webkit-scrollbar-thumb {
+  background: rgba(139, 92, 246, 0.25);
+  border-radius: 10px;
+}
+
+.domain-chips::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 92, 246, 0.4);
+}
+
 /* ── Domain Meta (count + clear all) ───────────────────────────── */
 .domain-meta {
   display: flex;
