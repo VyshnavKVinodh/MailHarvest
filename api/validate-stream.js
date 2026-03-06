@@ -1,19 +1,28 @@
 const { validateEmail } = require('../validator');
 
 module.exports = async function handler(req, res) {
-    if (req.method !== 'GET') {
+    let cleanEmails;
+
+    if (req.method === 'POST') {
+        // POST: emails in body (session-free approach)
+        const { emails } = req.body || {};
+        if (!emails || !Array.isArray(emails) || emails.length === 0) {
+            return res.status(400).json({ error: 'No emails provided.' });
+        }
+        cleanEmails = [...new Set(emails.map(e => String(e).trim().toLowerCase()).filter(e => e))];
+    } else if (req.method === 'GET') {
+        // GET fallback: emails in query string
+        const url = new URL(req.url, `http://${req.headers.host}`);
+        let emails = url.searchParams.getAll('email');
+        if (emails.length === 0) {
+            return res.status(400).json({ error: 'No emails provided.' });
+        }
+        cleanEmails = [...new Set(emails.map(e => e.trim().toLowerCase()).filter(e => e))];
+    } else {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    // Parse emails from query string
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    let emails = url.searchParams.getAll('email');
-    if (emails.length === 0) {
-        return res.status(400).json({ error: 'No emails provided.' });
-    }
-
-    const cleanEmails = [...new Set(emails.map(e => e.trim().toLowerCase()).filter(e => e))];
-    if (cleanEmails.length === 0) {
+    if (!cleanEmails || cleanEmails.length === 0) {
         return res.status(400).json({ error: 'No valid emails.' });
     }
 

@@ -1,22 +1,34 @@
 const { scrapeDomain } = require('../scraper');
 
 module.exports = async function handler(req, res) {
-    if (req.method !== 'GET') {
+    let cleanDomains;
+    let scrapeOptions = {};
+
+    if (req.method === 'POST') {
+        // POST: domains + options in body (session-free approach)
+        const { domains, maxContacts } = req.body || {};
+        if (!domains || !Array.isArray(domains) || domains.length === 0) {
+            return res.status(400).json({ error: 'No domains provided.' });
+        }
+        cleanDomains = domains
+            .map(d => String(d).trim().replace(/^https?:\/\//, '').replace(/\/+$/, ''))
+            .filter(d => d.length > 0);
+        scrapeOptions = { maxContacts: parseInt(maxContacts) || 0 };
+    } else if (req.method === 'GET') {
+        // GET fallback: domains in query string
+        const url = new URL(req.url, `http://${req.headers.host}`);
+        let domains = url.searchParams.getAll('domain');
+        if (domains.length === 0) {
+            return res.status(400).json({ error: 'No domains provided.' });
+        }
+        cleanDomains = domains
+            .map(d => d.trim().replace(/^https?:\/\//, '').replace(/\/+$/, ''))
+            .filter(d => d.length > 0);
+    } else {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    // Parse domains from query string
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    let domains = url.searchParams.getAll('domain');
-    if (domains.length === 0) {
-        return res.status(400).json({ error: 'No domains provided.' });
-    }
-
-    const cleanDomains = domains
-        .map(d => d.trim().replace(/^https?:\/\//, '').replace(/\/+$/, ''))
-        .filter(d => d.length > 0);
-
-    if (cleanDomains.length === 0) {
+    if (!cleanDomains || cleanDomains.length === 0) {
         return res.status(400).json({ error: 'No valid domains.' });
     }
 
@@ -29,7 +41,6 @@ module.exports = async function handler(req, res) {
 
     function send(event, data) {
         res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-        // Flush if available
         if (typeof res.flush === 'function') res.flush();
     }
 
@@ -46,7 +57,7 @@ module.exports = async function handler(req, res) {
                     contactsFound: progress.contactsFound,
                     currentUrl: progress.currentUrl,
                 });
-            });
+            }, scrapeOptions);
             totalPages += result.pagesScraped;
             result.contacts.forEach(c => allContacts.push({ ...c, domain }));
             send('domain-done', {

@@ -121,6 +121,33 @@
         setTimeout(() => el.style.animation = '', 400);
     }
 
+    // ── SSE via Fetch (supports POST — works on Vercel) ─────────
+    function parseSSEStream(reader, handlers) {
+        const decoder = new TextDecoder();
+        let buffer = '';
+        function processBuffer() {
+            const parts = buffer.split('\n\n');
+            buffer = parts.pop(); // keep incomplete chunk
+            for (const part of parts) {
+                if (!part.trim()) continue;
+                let event = 'message', data = '';
+                for (const line of part.split('\n')) {
+                    if (line.startsWith('event: ')) event = line.slice(7);
+                    else if (line.startsWith('data: ')) data = line.slice(6);
+                }
+                if (data && handlers[event]) {
+                    try { handlers[event](JSON.parse(data)); } catch { }
+                }
+            }
+        }
+        return reader.read().then(function pump({ done, value }) {
+            if (done) { processBuffer(); return; }
+            buffer += decoder.decode(value, { stream: true });
+            processBuffer();
+            return reader.read().then(pump);
+        });
+    }
+
     // ── SSE Scraping ──────────────────────────────────────────────
     async function startScraping() {
         if (state.domains.length === 0 || state.isLoading) return;
@@ -155,11 +182,15 @@
             elapsedTimeEl.textContent = mins > 0 ? `Elapsed: ${mins}m ${secs}s` : `Elapsed: ${secs}s`;
         }, 1000);
 
-        // POST domains to create a session, then connect SSE with session ID
-        let scrapeDone = false;
-        let evtSource;
+        function cleanup() {
+            state.isLoading = false;
+            updateScrapeBtn();
+            inputSection.classList.remove('collapsed');
+            clearInterval(elapsedTimer);
+        }
+
         try {
-            const sessionRes = await fetch('/api/scrape-session', {
+            const response = await fetch('/api/scrape-stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -167,88 +198,59 @@
                     maxContacts: limitToggle.checked ? parseInt(limitSelect.value) : 0,
                 }),
             });
-            if (!sessionRes.ok) throw new Error('Failed to create session');
-            const { sessionId } = await sessionRes.json();
-            evtSource = new EventSource(`/api/scrape-stream?session=${sessionId}`);
+            if (!response.ok) throw new Error('Server error: ' + response.status);
+
+            const reader = response.body.getReader();
+            await parseSSEStream(reader, {
+                'domain-start': (data) => {
+                    domainStatus[data.domain] = 'active';
+                    domainInfo[data.domain] = { pages: 0, contacts: 0 };
+                    renderDomainProgress(domainStatus, domainInfo);
+                    progressText.textContent = `Scraping ${data.domain}...`;
+                },
+                'domain-progress': (data) => {
+                    domainInfo[data.domain] = { pages: data.pagesScraped, contacts: data.contactsFound };
+                    renderDomainProgress(domainStatus, domainInfo);
+                    let pg = 0, ct = 0;
+                    Object.values(domainInfo).forEach(v => { pg += v.pages; ct += v.contacts; });
+                    progressStats.innerHTML = `
+                    <span>Domains: <span class="stat-value">${completedDomains}/${totalDomains}</span></span>
+                    <span>Pages: <span class="stat-value">${pg}</span></span>
+                    <span>Contacts: <span class="stat-value">${ct}</span></span>`;
+                },
+                'domain-done': (data) => {
+                    completedDomains++;
+                    domainStatus[data.domain] = data.error ? 'error' : 'done';
+                    if (data.error) errors.push(data.error);
+                    domainInfo[data.domain] = { pages: data.pagesScraped, contacts: data.contactsFound };
+                    renderDomainProgress(domainStatus, domainInfo);
+                    progressBar.style.width = Math.round((completedDomains / totalDomains) * 100) + '%';
+                    progressText.textContent = `Scraped ${completedDomains} of ${totalDomains} domains...`;
+                },
+                'done': (data) => {
+                    state.contacts = data.contacts || [];
+                    state.filteredContacts = [...state.contacts];
+                    if (errors.length > 0) {
+                        errorSection.classList.remove('hidden');
+                        errorList.innerHTML = errors.map(er => `<li>${esc(er)}</li>`).join('');
+                    }
+                    renderStats(data);
+                    renderDomainFilterOptions();
+                    state.contacts.forEach(c => state.selectedEmails.add(c.email));
+                    renderTable();
+                    progressSection.classList.add('hidden');
+                    resultsSection.classList.remove('hidden');
+                    resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    cleanup();
+                    showToast(`✓ Found ${state.contacts.length} contact${state.contacts.length !== 1 ? 's' : ''} from ${totalDomains} domain${totalDomains !== 1 ? 's' : ''}`);
+                },
+            });
         } catch (err) {
-            state.isLoading = false; updateScrapeBtn();
+            cleanup();
             progressSection.classList.add('hidden');
             errorSection.classList.remove('hidden');
             errorList.innerHTML = `<li>Failed to start scraping: ${esc(err.message)}</li>`;
-            return;
         }
-
-        evtSource.addEventListener('domain-start', (e) => {
-            const data = JSON.parse(e.data);
-            domainStatus[data.domain] = 'active';
-            domainInfo[data.domain] = { pages: 0, contacts: 0 };
-            renderDomainProgress(domainStatus, domainInfo);
-            progressText.textContent = `Scraping ${data.domain}...`;
-        });
-
-        evtSource.addEventListener('domain-progress', (e) => {
-            const data = JSON.parse(e.data);
-            domainInfo[data.domain] = { pages: data.pagesScraped, contacts: data.contactsFound };
-            renderDomainProgress(domainStatus, domainInfo);
-            let pg = 0, ct = 0;
-            Object.values(domainInfo).forEach(v => { pg += v.pages; ct += v.contacts; });
-            progressStats.innerHTML = `
-        <span>Domains: <span class="stat-value">${completedDomains}/${totalDomains}</span></span>
-        <span>Pages: <span class="stat-value">${pg}</span></span>
-        <span>Contacts: <span class="stat-value">${ct}</span></span>`;
-        });
-
-        evtSource.addEventListener('domain-done', (e) => {
-            const data = JSON.parse(e.data);
-            completedDomains++;
-            domainStatus[data.domain] = data.error ? 'error' : 'done';
-            if (data.error) errors.push(data.error);
-            domainInfo[data.domain] = { pages: data.pagesScraped, contacts: data.contactsFound };
-            renderDomainProgress(domainStatus, domainInfo);
-            progressBar.style.width = Math.round((completedDomains / totalDomains) * 100) + '%';
-            progressText.textContent = `Scraped ${completedDomains} of ${totalDomains} domains...`;
-        });
-
-        evtSource.addEventListener('done', (e) => {
-            scrapeDone = true;
-            const data = JSON.parse(e.data);
-            evtSource.close();
-            state.contacts = data.contacts || [];
-            state.filteredContacts = [...state.contacts];
-            if (errors.length > 0) {
-                errorSection.classList.remove('hidden');
-                errorList.innerHTML = errors.map(er => `<li>${esc(er)}</li>`).join('');
-            }
-            renderStats(data);
-            renderDomainFilterOptions();
-            // Auto-select all contacts
-            state.contacts.forEach(c => state.selectedEmails.add(c.email));
-            renderTable();
-            progressSection.classList.add('hidden');
-            resultsSection.classList.remove('hidden');
-            resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            state.isLoading = false;
-            updateScrapeBtn();
-            // Restore input section and stop timer
-            inputSection.classList.remove('collapsed');
-            clearInterval(elapsedTimer);
-            // Success toast
-            showToast(`✓ Found ${state.contacts.length} contact${state.contacts.length !== 1 ? 's' : ''} from ${totalDomains} domain${totalDomains !== 1 ? 's' : ''}`);
-        });
-
-        evtSource.addEventListener('error', () => {
-            evtSource.close();
-            if (!scrapeDone && state.isLoading) {
-                state.isLoading = false; updateScrapeBtn();
-                progressSection.classList.add('hidden');
-                inputSection.classList.remove('collapsed');
-                clearInterval(elapsedTimer);
-                if (state.contacts.length === 0) {
-                    errorSection.classList.remove('hidden');
-                    errorList.innerHTML = '<li>Connection lost. Please try again.</li>';
-                }
-            }
-        });
     }
 
     // ── Domain Progress ───────────────────────────────────────────
@@ -391,7 +393,7 @@
         headerCheckbox.indeterminate = sv > 0 && sv < tv;
     }
 
-    // ── Validation (SSE) ─────────────────────────────────────────
+    // ── Validation (SSE via Fetch) ────────────────────────────────
     async function startValidation() {
         if (state.isValidating || state.contacts.length === 0) return;
         state.isValidating = true;
@@ -404,62 +406,44 @@
 
         const emails = state.contacts.map(c => c.email);
 
-        let validationDone = false;
-        let evtSource;
+        function resetBtn(label) {
+            state.isValidating = false;
+            validateBtn.disabled = false;
+            validateBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg> ' + label;
+        }
+
         try {
-            const sessionRes = await fetch('/api/validate-session', {
+            const response = await fetch('/api/validate-stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ emails }),
             });
-            if (!sessionRes.ok) throw new Error('Failed to create validation session');
-            const { sessionId } = await sessionRes.json();
-            evtSource = new EventSource(`/api/validate-stream?session=${sessionId}`);
-        } catch (err) {
-            state.isValidating = false;
-            validateBtn.disabled = false;
-            validateBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg> Validate Emails';
-            validationProgress.classList.add('hidden');
-            return;
-        }
+            if (!response.ok) throw new Error('Server error: ' + response.status);
 
-        evtSource.addEventListener('progress', (e) => {
-            const data = JSON.parse(e.data);
-            state.validationResults[data.result.email] = data.result;
-            const pct = Math.round((data.completed / data.total) * 100);
-            validationBar.style.width = pct + '%';
-            validationText.textContent = `Checking ${data.current} (${data.completed}/${data.total})`;
-            // Live-update the table row
-            updateRowStatus(data.result.email);
-        });
-
-        evtSource.addEventListener('done', (e) => {
-            validationDone = true;
-            evtSource.close();
-            validationProgress.classList.add('hidden');
-            showValidationSummary();
-            renderTable();
-            state.isValidating = false;
-            validateBtn.disabled = false;
-            validateBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg> Re-Validate';
-        });
-
-        evtSource.addEventListener('error', () => {
-            evtSource.close();
-            // Only reset if validation didn't already finish successfully
-            // (SSE always fires 'error' when the server closes the connection)
-            if (!validationDone) {
-                validationProgress.classList.add('hidden');
-                // If we got some results, still show them
-                if (Object.keys(state.validationResults).length > 0) {
+            const reader = response.body.getReader();
+            await parseSSEStream(reader, {
+                'progress': (data) => {
+                    state.validationResults[data.result.email] = data.result;
+                    const pct = Math.round((data.completed / data.total) * 100);
+                    validationBar.style.width = pct + '%';
+                    validationText.textContent = `Checking ${data.current} (${data.completed}/${data.total})`;
+                    updateRowStatus(data.result.email);
+                },
+                'done': () => {
+                    validationProgress.classList.add('hidden');
                     showValidationSummary();
                     renderTable();
-                }
-                state.isValidating = false;
-                validateBtn.disabled = false;
-                validateBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg> Validate Emails';
+                    resetBtn('Re-Validate');
+                },
+            });
+        } catch (err) {
+            validationProgress.classList.add('hidden');
+            if (Object.keys(state.validationResults).length > 0) {
+                showValidationSummary();
+                renderTable();
             }
-        });
+            resetBtn('Validate Emails');
+        }
     }
 
     function updateRowStatus(email) {
