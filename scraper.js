@@ -366,9 +366,24 @@ function cleanText(text) {
 // ── Priority pages ─────────────────────────────────────────────────
 function prioritizeUrls(urls) {
   const priorityPatterns = [
-    /about/i, /team/i, /staff/i, /people/i, /contact/i,
-    /leadership/i, /management/i, /directory/i, /faculty/i,
-    /who-we-are/i, /our-team/i, /meet/i, /members/i
+    // General contact / about
+    /contact/i, /about/i, /who-we-are/i,
+    // People / team
+    /team/i, /our-team/i, /meet/i, /staff/i, /people/i, /members/i,
+    /employees/i, /personnel/i,
+    // Leadership / management
+    /leadership/i, /management/i, /board/i, /governance/i,
+    // Directories
+    /directory/i,
+    // Academic / university
+    /faculty/i, /professors/i, /academics/i, /department/i,
+    /dean/i, /provost/i,
+    // Research
+    /research/i, /labs?\b/i, /researchers/i, /centers?\b/i, /institutes?\b/i,
+    // Corporate
+    /press/i, /media/i, /newsroom/i, /investor/i,
+    // Government / org
+    /administration/i, /offices?\b/i, /divisions?\b/i,
   ];
 
   const priority = [];
@@ -380,6 +395,23 @@ function prioritizeUrls(urls) {
   });
 
   return [...priority, ...rest];
+}
+
+// ── Common contact paths to always probe ───────────────────────────
+function getCommonContactPaths(baseUrl) {
+  const paths = [
+    '/contact', '/contact-us', '/about', '/about-us',
+    '/team', '/our-team', '/meet-the-team', '/staff',
+    '/people', '/directory', '/faculty', '/faculty-directory',
+    '/leadership', '/management', '/administration',
+    '/board', '/board-of-directors',
+    '/about/team', '/about/people', '/about/leadership', '/about/contact',
+    '/departments', '/research', '/press', '/media', '/newsroom',
+    '/offices', '/staff-directory', '/employees',
+  ];
+  return paths.map(p => {
+    try { return new URL(p, baseUrl).href; } catch { return null; }
+  }).filter(Boolean);
 }
 
 // ── Non-English detection ──────────────────────────────────────────
@@ -479,7 +511,11 @@ async function scrapeDomain(domain, onProgress, options = {}) {
 
   // Discover links from homepage and queue them
   const homeLinks = discoverLinks(startHtml, startUrl, domain);
-  const prioritized = prioritizeUrls(homeLinks.filter(l => !visited.has(l)));
+
+  // Also inject common contact paths that may not be linked from the homepage
+  const commonPaths = getCommonContactPaths(startUrl);
+  const allSeedUrls = [...new Set([...commonPaths, ...homeLinks])].filter(l => !visited.has(l));
+  const prioritized = prioritizeUrls(allSeedUrls);
   toVisit.push(...prioritized);
 
   // ── Crawl remaining pages ──────────────────────────────────────
