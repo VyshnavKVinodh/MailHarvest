@@ -46,19 +46,44 @@
     const validationBar = $('#validationBar');
     const validationSummary = $('#validationSummary');
     const validationPanel = $('#validationPanel');
+    const limitToggle = $('#limitToggle');
+    const limitSelect = $('#limitSelect');
+    const limitSelectWrapper = $('#limitSelectWrapper');
+    const domainMeta = $('#domainMeta');
+    const domainCountEl = $('#domainCount');
+    const clearAllBtn = $('#clearAllBtn');
+    const elapsedTimeEl = $('#elapsedTime');
+    const inputSection = $('#inputSection');
 
     // ── Domain management ─────────────────────────────────────────
-    function addDomain() {
-        const value = domainInput.value.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
-        if (!value) return;
-        if (state.domains.includes(value)) { shake(domainInput); return; }
-        if (!/^[a-zA-Z0-9][a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(value)) { shake(domainInput); return; }
+    function addDomain(rawValue) {
+        const value = (rawValue || domainInput.value).trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+        if (!value) return false;
+        if (state.domains.includes(value)) { if (!rawValue) shake(domainInput); return false; }
+        if (!/^[a-zA-Z0-9][a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(value)) { if (!rawValue) shake(domainInput); return false; }
         state.domains.push(value);
-        domainInput.value = '';
-        renderChips();
-        updateScrapeBtn();
-        domainInput.focus();
+        if (!rawValue) domainInput.value = '';
+        return true;
     }
+
+    // Handle pasting multiple domains (e.g. from an Excel column)
+    domainInput.addEventListener('paste', (e) => {
+        const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+        // Split by newlines, carriage returns, or tabs (Excel column/row separators)
+        const lines = pastedText.split(/[\r\n\t]+/).map(s => s.trim()).filter(s => s.length > 0);
+        if (lines.length > 1) {
+            e.preventDefault();
+            let addedCount = 0;
+            lines.forEach(line => {
+                if (addDomain(line)) addedCount++;
+            });
+            domainInput.value = '';
+            renderChips();
+            updateScrapeBtn();
+            domainInput.focus();
+        }
+        // If only one value pasted, let default behavior handle it
+    });
 
     function removeDomain(d) {
         state.domains = state.domains.filter(x => x !== d);
@@ -71,9 +96,24 @@
       <span class="chip"><span>${d}</span><button class="chip-remove" data-d="${d}">&times;</button></span>
     `).join('');
         domainChips.querySelectorAll('.chip-remove').forEach(b => b.addEventListener('click', () => removeDomain(b.dataset.d)));
+        // Update domain count and show/hide meta
+        const count = state.domains.length;
+        if (count > 0) {
+            domainMeta.classList.remove('hidden');
+            domainCountEl.textContent = `${count} domain${count !== 1 ? 's' : ''} added`;
+        } else {
+            domainMeta.classList.add('hidden');
+        }
     }
 
     function updateScrapeBtn() { scrapeBtn.disabled = state.domains.length === 0 || state.isLoading; }
+
+    function clearAllDomains() {
+        state.domains = [];
+        renderChips();
+        updateScrapeBtn();
+        domainInput.focus();
+    }
 
     function shake(el) {
         el.style.animation = 'none'; el.offsetHeight;
@@ -105,10 +145,38 @@
         progressText.textContent = `Scraping ${totalDomains} domain${totalDomains > 1 ? 's' : ''}...`;
         progressBar.style.width = '2%';
 
-        const params = new URLSearchParams();
-        state.domains.forEach(d => params.append('domain', d));
+        // Collapse input and start elapsed timer
+        inputSection.classList.add('collapsed');
+        let elapsedSeconds = 0;
+        const elapsedTimer = setInterval(() => {
+            elapsedSeconds++;
+            const mins = Math.floor(elapsedSeconds / 60);
+            const secs = elapsedSeconds % 60;
+            elapsedTimeEl.textContent = mins > 0 ? `Elapsed: ${mins}m ${secs}s` : `Elapsed: ${secs}s`;
+        }, 1000);
+
+        // POST domains to create a session, then connect SSE with session ID
         let scrapeDone = false;
-        const evtSource = new EventSource(`/api/scrape-stream?${params.toString()}`);
+        let evtSource;
+        try {
+            const sessionRes = await fetch('/api/scrape-session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    domains: state.domains,
+                    maxContacts: limitToggle.checked ? parseInt(limitSelect.value) : 0,
+                }),
+            });
+            if (!sessionRes.ok) throw new Error('Failed to create session');
+            const { sessionId } = await sessionRes.json();
+            evtSource = new EventSource(`/api/scrape-stream?session=${sessionId}`);
+        } catch (err) {
+            state.isLoading = false; updateScrapeBtn();
+            progressSection.classList.add('hidden');
+            errorSection.classList.remove('hidden');
+            errorList.innerHTML = `<li>Failed to start scraping: ${esc(err.message)}</li>`;
+            return;
+        }
 
         evtSource.addEventListener('domain-start', (e) => {
             const data = JSON.parse(e.data);
@@ -153,12 +221,19 @@
             }
             renderStats(data);
             renderDomainFilterOptions();
+            // Auto-select all contacts
+            state.contacts.forEach(c => state.selectedEmails.add(c.email));
             renderTable();
             progressSection.classList.add('hidden');
             resultsSection.classList.remove('hidden');
             resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
             state.isLoading = false;
             updateScrapeBtn();
+            // Restore input section and stop timer
+            inputSection.classList.remove('collapsed');
+            clearInterval(elapsedTimer);
+            // Success toast
+            showToast(`✓ Found ${state.contacts.length} contact${state.contacts.length !== 1 ? 's' : ''} from ${totalDomains} domain${totalDomains !== 1 ? 's' : ''}`);
         });
 
         evtSource.addEventListener('error', () => {
@@ -166,6 +241,8 @@
             if (!scrapeDone && state.isLoading) {
                 state.isLoading = false; updateScrapeBtn();
                 progressSection.classList.add('hidden');
+                inputSection.classList.remove('collapsed');
+                clearInterval(elapsedTimer);
                 if (state.contacts.length === 0) {
                     errorSection.classList.remove('hidden');
                     errorList.innerHTML = '<li>Connection lost. Please try again.</li>';
@@ -232,6 +309,7 @@
           <td class="email-cell">${esc(c.email)}</td>
           <td class="status-cell">${statusBadge}</td>
           <td>${esc(c.domain)}</td>
+          <td class="source-cell"><a href="${escA(c.source || '')}" target="_blank" rel="noopener" title="${escA(c.source || '')}">${esc(getSourcePath(c.source))}</a></td>
         </tr>`;
         }).join('');
 
@@ -270,7 +348,9 @@
             const md = !dom || c.domain === dom;
             const ms = !search || c.email.toLowerCase().includes(search) || (c.name && c.name.toLowerCase().includes(search)) || (c.designation && c.designation.toLowerCase().includes(search)) || c.domain.toLowerCase().includes(search);
             let mst = true;
-            if (st) {
+            if (st === 'has-name') mst = !!c.name;
+            else if (st === 'has-designation') mst = !!c.designation;
+            else if (st) {
                 const vr = state.validationResults[c.email];
                 if (st === 'unchecked') mst = !vr;
                 else mst = vr && vr.status === st;
@@ -323,11 +403,25 @@
         validationBar.style.width = '0%';
 
         const emails = state.contacts.map(c => c.email);
-        const params = new URLSearchParams();
-        emails.forEach(e => params.append('email', e));
 
         let validationDone = false;
-        const evtSource = new EventSource(`/api/validate-stream?${params.toString()}`);
+        let evtSource;
+        try {
+            const sessionRes = await fetch('/api/validate-session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emails }),
+            });
+            if (!sessionRes.ok) throw new Error('Failed to create validation session');
+            const { sessionId } = await sessionRes.json();
+            evtSource = new EventSource(`/api/validate-stream?session=${sessionId}`);
+        } catch (err) {
+            state.isValidating = false;
+            validateBtn.disabled = false;
+            validateBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg> Validate Emails';
+            validationProgress.classList.add('hidden');
+            return;
+        }
 
         evtSource.addEventListener('progress', (e) => {
             const data = JSON.parse(e.data);
@@ -467,11 +561,27 @@
     // ── Helpers ───────────────────────────────────────────────────
     function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
     function escA(s) { if (!s) return ''; return s.replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+    function getSourcePath(url) {
+        if (!url) return '—';
+        try { return new URL(url).pathname || '/'; } catch { return url; }
+    }
+    function showToast(msg) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = msg;
+        document.body.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add('show'));
+        setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 400); }, 4000);
+    }
 
     // ── Events ────────────────────────────────────────────────────
-    addDomainBtn.addEventListener('click', addDomain);
-    domainInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addDomain(); } });
+    function addDomainFromInput() {
+        if (addDomain()) { domainInput.value = ''; renderChips(); updateScrapeBtn(); domainInput.focus(); }
+    }
+    addDomainBtn.addEventListener('click', addDomainFromInput);
+    domainInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addDomainFromInput(); } });
     scrapeBtn.addEventListener('click', startScraping);
+    clearAllBtn.addEventListener('click', clearAllDomains);
     selectAllBtn.addEventListener('click', selectAll);
     deselectAllBtn.addEventListener('click', deselectAll);
     validateBtn.addEventListener('click', startValidation);
@@ -481,6 +591,15 @@
     domainFilter.addEventListener('change', () => renderTable());
     statusFilter.addEventListener('change', () => renderTable());
     $('#vpClose').addEventListener('click', () => validationPanel.classList.add('hidden'));
+
+    // Contact limit toggle
+    limitToggle.addEventListener('change', () => {
+        if (limitToggle.checked) {
+            limitSelectWrapper.classList.remove('hidden');
+        } else {
+            limitSelectWrapper.classList.add('hidden');
+        }
+    });
 
     document.addEventListener('keydown', (e) => {
         if (e.ctrlKey && e.key === 'a' && !resultsSection.classList.contains('hidden')) {

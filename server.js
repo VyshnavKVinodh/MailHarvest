@@ -5,24 +5,65 @@ const ExcelJS = require('exceljs');
 const { scrapeDomain } = require('./scraper');
 const { validateEmail } = require('./validator');
 
+const crypto = require('crypto');
+
 const app = express();
 const PORT = 3000;
+
+// In-memory session store for large domain/email lists
+const sessions = new Map();
+function createSession(data) {
+    const id = crypto.randomBytes(8).toString('hex');
+    sessions.set(id, data);
+    // Auto-cleanup after 10 minutes
+    setTimeout(() => sessions.delete(id), 10 * 60 * 1000);
+    return id;
+}
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ── POST /api/scrape-session (create session for large lists) ──
+app.post('/api/scrape-session', (req, res) => {
+    const { domains, maxContacts } = req.body;
+    if (!domains || !Array.isArray(domains) || domains.length === 0) {
+        return res.status(400).json({ error: 'No domains provided.' });
+    }
+    const cleanDomains = domains
+        .map(d => String(d).trim().replace(/^https?:\/\//, '').replace(/\/+$/, ''))
+        .filter(d => d.length > 0);
+    if (cleanDomains.length === 0) return res.status(400).json({ error: 'No valid domains.' });
+    const sessionId = createSession({
+        domains: cleanDomains,
+        maxContacts: parseInt(maxContacts) || 0,
+    });
+    res.json({ sessionId });
+});
+
 // ── GET /api/scrape-stream (SSE) ───────────────────────────────
 app.get('/api/scrape-stream', async (req, res) => {
-    let domains = req.query.domain;
-    if (!domains) return res.status(400).json({ error: 'No domains provided.' });
-    if (!Array.isArray(domains)) domains = [domains];
+    let cleanDomains;
+    let scrapeOptions = {};
 
-    const cleanDomains = domains
-        .map(d => d.trim().replace(/^https?:\/\//, '').replace(/\/+$/, ''))
-        .filter(d => d.length > 0);
+    // Support session-based lookup (for large lists)
+    if (req.query.session) {
+        const session = sessions.get(req.query.session);
+        if (!session) return res.status(400).json({ error: 'Session expired or invalid.' });
+        cleanDomains = session.domains;
+        scrapeOptions = { maxContacts: session.maxContacts || 0 };
+        sessions.delete(req.query.session);
+    } else {
+        // Fallback: query param approach (for small lists)
+        let domains = req.query.domain;
+        if (!domains) return res.status(400).json({ error: 'No domains provided.' });
+        if (!Array.isArray(domains)) domains = [domains];
+        cleanDomains = domains
+            .map(d => String(d).trim().replace(/^https?:\/\//, '').replace(/\/+$/, ''))
+            .filter(d => d.length > 0);
+    }
 
-    if (cleanDomains.length === 0) return res.status(400).json({ error: 'No valid domains.' });
+    if (!cleanDomains || cleanDomains.length === 0) return res.status(400).json({ error: 'No valid domains.' });
 
     res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -48,7 +89,7 @@ app.get('/api/scrape-stream', async (req, res) => {
                     contactsFound: progress.contactsFound,
                     currentUrl: progress.currentUrl,
                 });
-            });
+            }, scrapeOptions);
             totalPages += result.pagesScraped;
             result.contacts.forEach(c => allContacts.push({ ...c, domain }));
             send('domain-done', {
@@ -73,14 +114,35 @@ app.get('/api/scrape-stream', async (req, res) => {
     res.end();
 });
 
+// ── POST /api/validate-session (create session for large lists)
+app.post('/api/validate-session', (req, res) => {
+    const { emails } = req.body;
+    if (!emails || !Array.isArray(emails) || emails.length === 0) {
+        return res.status(400).json({ error: 'No emails provided.' });
+    }
+    const cleanEmails = [...new Set(emails.map(e => String(e).trim().toLowerCase()).filter(e => e))];
+    if (cleanEmails.length === 0) return res.status(400).json({ error: 'No valid emails.' });
+    const sessionId = createSession({ emails: cleanEmails });
+    res.json({ sessionId });
+});
+
 // ── GET /api/validate-stream (SSE) ─────────────────────────────
 app.get('/api/validate-stream', async (req, res) => {
-    let emails = req.query.email;
-    if (!emails) return res.status(400).json({ error: 'No emails provided.' });
-    if (!Array.isArray(emails)) emails = [emails];
+    let cleanEmails;
 
-    const cleanEmails = [...new Set(emails.map(e => e.trim().toLowerCase()).filter(e => e))];
-    if (cleanEmails.length === 0) return res.status(400).json({ error: 'No valid emails.' });
+    if (req.query.session) {
+        const session = sessions.get(req.query.session);
+        if (!session) return res.status(400).json({ error: 'Session expired or invalid.' });
+        cleanEmails = session.emails;
+        sessions.delete(req.query.session);
+    } else {
+        let emails = req.query.email;
+        if (!emails) return res.status(400).json({ error: 'No emails provided.' });
+        if (!Array.isArray(emails)) emails = [emails];
+        cleanEmails = [...new Set(emails.map(e => String(e).trim().toLowerCase()).filter(e => e))];
+    }
+
+    if (!cleanEmails || cleanEmails.length === 0) return res.status(400).json({ error: 'No valid emails.' });
 
     res.writeHead(200, {
         'Content-Type': 'text/event-stream',

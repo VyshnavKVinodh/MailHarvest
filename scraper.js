@@ -1,12 +1,31 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const { URL } = require('url');
+const https = require('https');
+const { translate } = require('google-translate-api-x');
 
 // ── Configuration ──────────────────────────────────────────────────
-const MAX_PAGES_PER_DOMAIN = 30; // Reduced for better batch performance
-const REQUEST_TIMEOUT = 12000;
-const DELAY_BETWEEN_REQUESTS = 400; // ms
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const DEFAULT_MAX_PAGES = 30;
+const REQUEST_TIMEOUT = 15000;
+const DELAY_BETWEEN_REQUESTS = 200; // ms — lower for better batch throughput
+const MAX_RETRIES = 2;
+const RETRY_BASE_DELAY = 1000; // ms
+
+// HTTPS agent that tolerates self-signed / expired certs
+const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+
+// ── User-Agent pool ────────────────────────────────────────────────
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
+];
+
+function randomUA() {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
 
 // ── Email regex ────────────────────────────────────────────────────
 const EMAIL_REGEX = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
@@ -60,29 +79,56 @@ function isJunkEmail(email) {
   return JUNK_EMAIL_PATTERNS.some(pattern => pattern.test(email));
 }
 
-// ── Page fetcher ───────────────────────────────────────────────────
-async function fetchPage(url) {
-  try {
-    const response = await axios.get(url, {
-      timeout: REQUEST_TIMEOUT,
-      headers: {
-        'User-Agent': USER_AGENT,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-      maxRedirects: 5,
-      maxContentLength: 5 * 1024 * 1024,
-    });
+// ── Retryable errors ──────────────────────────────────────────────
+function isRetryable(error) {
+  if (!error) return false;
+  // Network / connection errors
+  const retryCodes = ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE', 'EHOSTUNREACH'];
+  if (error.code && retryCodes.includes(error.code)) return true;
+  // HTTP status codes worth retrying
+  if (error.response) {
+    const status = error.response.status;
+    return status === 429 || status === 503 || status === 502 || status === 504;
+  }
+  // Timeout
+  if (error.code === 'ECONNABORTED') return true;
+  return false;
+}
 
-    const contentType = response.headers['content-type'] || '';
-    if (!contentType.includes('text/html') && !contentType.includes('application/xhtml')) {
+// ── Page fetcher with retry ───────────────────────────────────────
+async function fetchPage(url, retries = MAX_RETRIES) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await axios.get(url, {
+        timeout: REQUEST_TIMEOUT,
+        headers: {
+          'User-Agent': randomUA(),
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate',
+          'Connection': 'keep-alive',
+        },
+        maxRedirects: 5,
+        maxContentLength: 5 * 1024 * 1024,
+        httpsAgent,
+      });
+
+      const contentType = response.headers['content-type'] || '';
+      if (!contentType.includes('text/html') && !contentType.includes('application/xhtml')) {
+        return null;
+      }
+
+      return response.data;
+    } catch (error) {
+      if (attempt < retries && isRetryable(error)) {
+        const delay = RETRY_BASE_DELAY * Math.pow(2, attempt);
+        await sleep(delay);
+        continue;
+      }
       return null;
     }
-
-    return response.data;
-  } catch (error) {
-    return null;
   }
+  return null;
 }
 
 // ── Link discovery ─────────────────────────────────────────────────
@@ -239,10 +285,12 @@ function findContextInCard($, $card) {
 
   const desigSelectors = [
     '.title', '.role', '.position', '.job-title', '.designation',
-    '.subtitle', '.occupation', '.job', '.function',
+    '.subtitle', '.occupation', '.job', '.function', '.description',
     '[class*="title"]', '[class*="role"]', '[class*="position"]',
-    '[class*="designation"]', '[class*="job"]',
-    '[itemprop="jobTitle"]', '[itemprop="role"]'
+    '[class*="designation"]', '[class*="job"]', '[class*="desc"]',
+    '[class*="function"]', '[class*="occupation"]',
+    '[itemprop="jobTitle"]', '[itemprop="role"]',
+    'p', 'span', 'small'
   ];
 
   for (const sel of nameSelectors) {
@@ -278,11 +326,13 @@ function findContextInCard($, $card) {
 // ── Heuristic checks ───────────────────────────────────────────────
 function isPossibleName(text) {
   if (!text || text.length < 2 || text.length > 60) return false;
-  if (!/^[A-Z]/.test(text)) return false;
   if (/\d{3,}/.test(text)) return false;
   if (text.split(' ').length > 5) return false;
   if (/[@#$%^&*()+=\[\]{}<>|\\\/]/.test(text)) return false;
-  return true;
+  // Allow non-Latin scripts (Cyrillic, CJK, Arabic, Devanagari, etc.)
+  if (/^[A-Z\u00C0-\u024F]/.test(text)) return true;
+  if (/[\u0400-\u04FF\u0600-\u06FF\u0900-\u097F\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]/.test(text)) return true;
+  return false;
 }
 
 function isPossibleDesignation(text) {
@@ -294,7 +344,16 @@ function isPossibleDesignation(text) {
     'developer', 'designer', 'architect', 'consultant', 'advisor', 'specialist',
     'coordinator', 'executive', 'administrator', 'secretary', 'professor',
     'doctor', 'dr.', 'attorney', 'lawyer', 'accountant', 'supervisor',
-    'chairman', 'chairperson', 'dean', 'principal', 'editor', 'researcher'
+    'chairman', 'chairperson', 'dean', 'principal', 'editor', 'researcher',
+    'sales', 'marketing', 'finance', 'operations', 'human resources', 'hr',
+    'compliance', 'legal', 'strategy', 'procurement', 'logistics',
+    'senior', 'junior', 'assistant', 'deputy', 'general', 'regional',
+    'representative', 'correspondent', 'ambassador', 'counsel', 'auditor',
+    'technician', 'nurse', 'pharmacist', 'surgeon', 'therapist', 'scientist',
+    'chef', 'instructor', 'trainer', 'planner', 'broker', 'agent',
+    'captain', 'colonel', 'commander', 'lieutenant', 'sergeant',
+    'directeur', 'gérant', 'responsable', 'directora', 'gerente', 'jefe',
+    'direktor', 'leiter', 'geschäftsführer', 'direttore', 'presidente'
   ];
   const lower = text.toLowerCase();
   return designationKeywords.some(kw => lower.includes(kw));
@@ -323,27 +382,111 @@ function prioritizeUrls(urls) {
   return [...priority, ...rest];
 }
 
-// ── Main domain scraper ────────────────────────────────────────────
-async function scrapeDomain(domain, onProgress) {
-  domain = domain.replace(/^https?:\/\//, '').replace(/\/+$/, '').trim();
-  const startUrl = `https://${domain}`;
+// ── Non-English detection ──────────────────────────────────────────
+function isNonEnglish(text) {
+  if (!text || text.length < 2) return false;
+  // Check for non-ASCII-Latin characters (Cyrillic, CJK, Arabic, Devanagari, etc.)
+  return /[\u0400-\u04FF\u0600-\u06FF\u0900-\u097F\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\u00C0-\u024F\u1E00-\u1EFF]/.test(text)
+    && !/^[a-zA-Z0-9\s.,\-'"@()&;:!/]+$/.test(text);
+}
 
-  const visited = new Set();
-  const toVisit = [startUrl];
-  const allContacts = [];
-  let pagesScraped = 0;
+// ── Batch translate non-English contacts ───────────────────────────
+async function translateContacts(contacts) {
+  const toTranslate = [];
+  const indexMap = []; // maps toTranslate index → { contactIdx, field }
 
-  // Try https first, fall back to http
-  const html = await fetchPage(startUrl);
-  if (!html) {
-    const httpUrl = `http://${domain}`;
-    const httpHtml = await fetchPage(httpUrl);
-    if (httpHtml) {
-      toVisit[0] = httpUrl;
+  contacts.forEach((c, ci) => {
+    if (c.name && isNonEnglish(c.name)) {
+      indexMap.push({ ci, field: 'name' });
+      toTranslate.push(c.name);
     }
+    if (c.designation && isNonEnglish(c.designation)) {
+      indexMap.push({ ci, field: 'designation' });
+      toTranslate.push(c.designation);
+    }
+  });
+
+  if (toTranslate.length === 0) return contacts;
+
+  try {
+    // Batch translate all at once for efficiency
+    const results = await translate(toTranslate, { to: 'en' });
+    const translations = Array.isArray(results) ? results : [results];
+
+    translations.forEach((res, i) => {
+      const { ci, field } = indexMap[i];
+      const translated = res.text || res;
+      if (translated && typeof translated === 'string' && translated.length > 0) {
+        // Store original in parentheses for reference
+        contacts[ci][field] = `${translated} (${contacts[ci][field]})`;
+      }
+    });
+  } catch (err) {
+    // Translation failed silently — keep originals
   }
 
-  while (toVisit.length > 0 && pagesScraped < MAX_PAGES_PER_DOMAIN) {
+  return contacts;
+}
+
+// ── Main domain scraper ────────────────────────────────────────────
+async function scrapeDomain(domain, onProgress, options = {}) {
+  domain = domain.replace(/^https?:\/\//, '').replace(/\/+$/, '').trim();
+
+  const maxPages = options.maxPages || DEFAULT_MAX_PAGES;
+  const maxContacts = options.maxContacts || 0; // 0 = unlimited
+
+  const visited = new Set();
+  const toVisit = [];
+  const allContacts = [];
+  const emailMap = new Map(); // deduplicate as we go
+  let pagesScraped = 0;
+
+  // ── Resolve the start URL (https → http fallback) ──────────────
+  let startUrl = `https://${domain}`;
+  let startHtml = await fetchPage(startUrl);
+  if (!startHtml) {
+    startUrl = `http://${domain}`;
+    startHtml = await fetchPage(startUrl);
+  }
+
+  if (!startHtml) {
+    // Could not reach the site at all
+    return { domain, pagesScraped: 0, contacts: [] };
+  }
+
+  // Process the homepage directly (don't re-fetch)
+  visited.add(startUrl);
+  pagesScraped++;
+
+  const homeContacts = extractContacts(startHtml, startUrl);
+  homeContacts.forEach(c => {
+    if (!emailMap.has(c.email)) {
+      emailMap.set(c.email, c);
+      allContacts.push(c);
+    }
+  });
+
+  if (onProgress) {
+    onProgress({ domain, pagesScraped, currentUrl: startUrl, contactsFound: allContacts.length, queueSize: 0 });
+  }
+
+  // Check contact limit after homepage
+  if (maxContacts > 0 && allContacts.length >= maxContacts) {
+    const limited = allContacts.slice(0, maxContacts);
+    await translateContacts(limited);
+    return { domain, pagesScraped, contacts: limited };
+  }
+
+  // Discover links from homepage and queue them
+  const homeLinks = discoverLinks(startHtml, startUrl, domain);
+  const prioritized = prioritizeUrls(homeLinks.filter(l => !visited.has(l)));
+  toVisit.push(...prioritized);
+
+  // ── Crawl remaining pages ──────────────────────────────────────
+  while (toVisit.length > 0 && pagesScraped < maxPages) {
+    // Check contact limit before each page
+    if (maxContacts > 0 && allContacts.length >= maxContacts) break;
+
     const url = toVisit.shift();
     if (visited.has(url)) continue;
     visited.add(url);
@@ -364,33 +507,32 @@ async function scrapeDomain(domain, onProgress) {
     pagesScraped++;
 
     const contacts = extractContacts(pageHtml, url);
-    allContacts.push(...contacts);
+    contacts.forEach(c => {
+      if (!emailMap.has(c.email)) {
+        emailMap.set(c.email, c);
+        allContacts.push(c);
+      }
+    });
 
     const newLinks = discoverLinks(pageHtml, url, domain);
-    const prioritized = prioritizeUrls(newLinks.filter(l => !visited.has(l)));
-    toVisit.push(...prioritized.filter(l => !toVisit.includes(l)));
+    const newPrioritized = prioritizeUrls(newLinks.filter(l => !visited.has(l)));
+    toVisit.push(...newPrioritized.filter(l => !toVisit.includes(l)));
 
     if (toVisit.length > 0) {
       await sleep(DELAY_BETWEEN_REQUESTS);
     }
   }
 
-  // Deduplicate by email
-  const emailMap = new Map();
-  allContacts.forEach(contact => {
-    const existing = emailMap.get(contact.email);
-    if (!existing) {
-      emailMap.set(contact.email, contact);
-    } else {
-      if (!existing.name && contact.name) existing.name = contact.name;
-      if (!existing.designation && contact.designation) existing.designation = contact.designation;
-    }
-  });
+  // Apply contact limit on final output
+  const finalContacts = maxContacts > 0 ? allContacts.slice(0, maxContacts) : allContacts;
+
+  // Translate non-English names and designations
+  await translateContacts(finalContacts);
 
   return {
     domain,
     pagesScraped,
-    contacts: [...emailMap.values()]
+    contacts: finalContacts
   };
 }
 

@@ -70,6 +70,49 @@
             </div>
 
             <div class="domain-chips" id="domainChips"></div>
+            <div class="domain-meta hidden" id="domainMeta">
+                <span class="domain-count" id="domainCount">0 domains</span>
+                <button class="btn-clear-all" id="clearAllBtn" title="Remove all domains">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 6h18" />
+                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                    </svg>
+                    Clear All
+                </button>
+            </div>
+
+            <!-- Scraping Options -->
+            <div class="scrape-options" id="scrapeOptions">
+                <div class="option-row">
+                    <div class="option-label">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 20V10" />
+                            <path d="M18 20V4" />
+                            <path d="M6 20v-4" />
+                        </svg>
+                        <span>Limit contacts per domain</span>
+                    </div>
+                    <div class="option-controls">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="limitToggle">
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <div class="limit-select-wrapper hidden" id="limitSelectWrapper">
+                            <select id="limitSelect">
+                                <option value="5">5</option>
+                                <option value="10">10</option>
+                                <option value="25" selected>25</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                            </select>
+                            <span class="limit-label">contacts</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
             <button class="btn btn-primary" id="scrapeBtn" disabled>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -94,6 +137,7 @@
                 <div class="progress-bar" id="progressBar"></div>
             </div>
             <div class="progress-stats" id="progressStats"></div>
+            <div class="elapsed-time" id="elapsedTime">Elapsed: 0s</div>
             <div class="domain-progress-list" id="domainProgressList"></div>
         </div>
 
@@ -194,6 +238,8 @@
                         <option value="catchall">⚠ Catch-All</option>
                         <option value="invalid">✗ Invalid</option>
                         <option value="unchecked">○ Unchecked</option>
+                        <option value="has-name">👤 Has Name</option>
+                        <option value="has-designation">💼 Has Designation</option>
                     </select>
                 </div>
             </div>
@@ -215,6 +261,7 @@
                             <th>Email</th>
                             <th>Status</th>
                             <th>Domain</th>
+                            <th>Source</th>
                         </tr>
                     </thead>
                     <tbody id="resultsBody"></tbody>
