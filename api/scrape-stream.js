@@ -6,14 +6,14 @@ module.exports = async function handler(req, res) {
 
     if (req.method === 'POST') {
         // POST: domains + options in body (session-free approach)
-        const { domains, maxContacts } = req.body || {};
+        const { domains, maxContacts, crawlMode } = req.body || {};
         if (!domains || !Array.isArray(domains) || domains.length === 0) {
             return res.status(400).json({ error: 'No domains provided.' });
         }
         cleanDomains = domains
             .map(d => String(d).trim().replace(/^https?:\/\//, '').replace(/\/+$/, ''))
             .filter(d => d.length > 0);
-        scrapeOptions = { maxContacts: parseInt(maxContacts) || 0 };
+        scrapeOptions = { maxContacts: parseInt(maxContacts) || 0, crawlMode: crawlMode || 'quick' };
     } else if (req.method === 'GET') {
         // GET fallback: domains in query string
         const url = new URL(req.url, `http://${req.headers.host}`);
@@ -56,6 +56,8 @@ module.exports = async function handler(req, res) {
                     pagesScraped: progress.pagesScraped,
                     contactsFound: progress.contactsFound,
                     currentUrl: progress.currentUrl,
+                    queueSize: progress.queueSize || 0,
+                    phase: progress.phase || 1,
                 });
             }, scrapeOptions);
             totalPages += result.pagesScraped;

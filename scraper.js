@@ -5,7 +5,8 @@ const https = require('https');
 const { translate } = require('google-translate-api-x');
 
 // ── Configuration ──────────────────────────────────────────────────
-const DEFAULT_MAX_PAGES = 30;
+const QUICK_MAX_PAGES = 30;
+const DEEP_MAX_PAGES = 200;
 const REQUEST_TIMEOUT = 15000;
 const DELAY_BETWEEN_REQUESTS = 200; // ms — lower for better batch throughput
 const MAX_RETRIES = 2;
@@ -48,6 +49,14 @@ function normalizeUrl(href, baseUrl) {
   try {
     const url = new URL(href, baseUrl);
     url.hash = '';
+    // Strip common tracking/session params
+    url.searchParams.delete('utm_source');
+    url.searchParams.delete('utm_medium');
+    url.searchParams.delete('utm_campaign');
+    url.searchParams.delete('utm_content');
+    url.searchParams.delete('utm_term');
+    url.searchParams.delete('fbclid');
+    url.searchParams.delete('gclid');
     let normalized = url.href.replace(/\/+$/, '');
     return normalized;
   } catch {
@@ -82,15 +91,12 @@ function isJunkEmail(email) {
 // ── Retryable errors ──────────────────────────────────────────────
 function isRetryable(error) {
   if (!error) return false;
-  // Network / connection errors
   const retryCodes = ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE', 'EHOSTUNREACH'];
   if (error.code && retryCodes.includes(error.code)) return true;
-  // HTTP status codes worth retrying
   if (error.response) {
     const status = error.response.status;
     return status === 429 || status === 503 || status === 502 || status === 504;
   }
-  // Timeout
   if (error.code === 'ECONNABORTED') return true;
   return false;
 }
@@ -328,8 +334,7 @@ function isPossibleName(text) {
   if (!text || text.length < 2 || text.length > 60) return false;
   if (/\d{3,}/.test(text)) return false;
   if (text.split(' ').length > 5) return false;
-  if (/[@#$%^&*()+=\[\]{}<>|\\\/]/.test(text)) return false;
-  // Allow non-Latin scripts (Cyrillic, CJK, Arabic, Devanagari, etc.)
+  if (/[@#$%^&*()+=\[\]{}<>|\\/]/.test(text)) return false;
   if (/^[A-Z\u00C0-\u024F]/.test(text)) return true;
   if (/[\u0400-\u04FF\u0600-\u06FF\u0900-\u097F\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]/.test(text)) return true;
   return false;
@@ -363,51 +368,150 @@ function cleanText(text) {
   return text.replace(/\s+/g, ' ').trim().substring(0, 120);
 }
 
-// ── Priority pages ─────────────────────────────────────────────────
-function prioritizeUrls(urls) {
-  const priorityPatterns = [
-    // General contact / about
-    /contact/i, /about/i, /who-we-are/i,
-    // People / team
-    /team/i, /our-team/i, /meet/i, /staff/i, /people/i, /members/i,
-    /employees/i, /personnel/i,
-    // Leadership / management
-    /leadership/i, /management/i, /board/i, /governance/i,
-    // Directories
-    /directory/i,
-    // Academic / university
-    /faculty/i, /professors/i, /academics/i, /department/i,
-    /dean/i, /provost/i,
-    // Research
-    /research/i, /labs?\b/i, /researchers/i, /centers?\b/i, /institutes?\b/i,
-    // Corporate
-    /press/i, /media/i, /newsroom/i, /investor/i,
-    // Government / org
-    /administration/i, /offices?\b/i, /divisions?\b/i,
+// ══════════════════════════════════════════════════════════════════════
+// ██  PRIORITY SCORING & SMART LINK CLASSIFICATION
+// ══════════════════════════════════════════════════════════════════════
+
+/**
+ * Score a URL by how likely it is to contain admin/leadership contacts.
+ * Returns a number: higher = more likely to have contacts.
+ *   100  = Direct contact / about pages
+ *   90   = Team / people / staff pages
+ *   80   = Board / governance / directory
+ *   70   = Departments / offices / divisions
+ *   50   = About sub-pages, research, press
+ *   10   = Generic same-domain pages
+ *   -1   = Skip entirely (blog, product, cart, auth, legal, careers)
+ */
+function scoreUrl(url) {
+  let pathname;
+  try { pathname = new URL(url).pathname.toLowerCase(); } catch { return 10; }
+
+  // ── SKIP patterns (return -1) ──────────────────────────────────
+  const skipPatterns = [
+    /\/blog\b/i, /\/post\b/i, /\/article\b/i, /\/news\/\d{4}/i,
+    /\/\d{4}\/\d{2}\//i,                        // date-slug blog posts
+    /\/product[s]?\b/i, /\/shop\b/i, /\/store\b/i, /\/cart\b/i,
+    /\/checkout\b/i, /\/buy\b/i, /\/pricing\b/i,
+    /\/login\b/i, /\/register\b/i, /\/signup\b/i, /\/sign-up\b/i,
+    /\/forgot[-]?password/i, /\/reset[-]?password/i, /\/account\b/i,
+    /\/terms\b/i, /\/privacy\b/i, /\/cookie[-]?policy/i, /\/gdpr\b/i,
+    /\/legal\b/i, /\/disclaimer\b/i, /\/refund\b/i,
+    /\/careers?\b/i, /\/jobs?\b/i, /\/apply\b/i, /\/vacancies\b/i,
+    /\/recruitment\b/i, /\/hiring\b/i, /\/openings\b/i,
+    /\/faq\b/i, /\/help\b/i, /\/support\b/i, /\/ticket\b/i,
+    /\/forum\b/i, /\/community\b/i, /\/comments?\b/i,
+    /\/tag\b/i, /\/category\b/i, /\/archive\b/i,
+    /\/feed\b/i, /\/rss\b/i, /\/sitemap\b/i, /\/robots\b/i,
+    /\/wp-admin\b/i, /\/wp-content\b/i, /\/wp-includes\b/i,
+    /\/cdn[-]?cgi\b/i,
   ];
+  if (skipPatterns.some(p => p.test(pathname))) return -1;
 
-  const priority = [];
-  const rest = [];
+  // ── Also skip paginated / filtered query strings ───────────────
+  try {
+    const u = new URL(url);
+    const params = u.searchParams;
+    if (params.has('page') || params.has('p') || params.has('sort') || params.has('order') ||
+        params.has('category') || params.has('tag') || params.has('filter') ||
+        params.has('search') || params.has('q') || params.has('s')) {
+      return -1;
+    }
+  } catch { /* continue */ }
 
-  urls.forEach(url => {
-    if (priorityPatterns.some(p => p.test(url))) priority.push(url);
-    else rest.push(url);
-  });
+  // ── Score 100: Direct contact / about ──────────────────────────
+  const score100 = [
+    /^\/contact\b/i, /^\/contact[-_]?us\b/i, /^\/about[-_]?us\b/i,
+    /^\/about\/?$/i, /^\/who[-_]?we[-_]?are\b/i, /^\/reach[-_]?us\b/i,
+    /^\/get[-_]?in[-_]?touch\b/i, /^\/connect\b/i,
+  ];
+  if (score100.some(p => p.test(pathname))) return 100;
 
-  return [...priority, ...rest];
+  // ── Score 90: Team / people / staff ────────────────────────────
+  const score90 = [
+    /\/team\b/i, /\/our[-_]?team\b/i, /\/meet[-_]?the[-_]?team\b/i,
+    /\/staff\b/i, /\/people\b/i, /\/members\b/i, /\/employees\b/i,
+    /\/personnel\b/i, /\/meet[-_]?us\b/i, /\/our[-_]?people\b/i,
+    /\/staff[-_]?directory\b/i, /\/people[-_]?directory\b/i,
+  ];
+  if (score90.some(p => p.test(pathname))) return 90;
+
+  // ── Score 80: Board / governance / directory / faculty ─────────
+  const score80 = [
+    /\/leadership\b/i, /\/management\b/i, /\/board\b/i,
+    /\/board[-_]?of[-_]?directors\b/i, /\/governance\b/i,
+    /\/directory\b/i, /\/faculty\b/i, /\/faculty[-_]?directory\b/i,
+    /\/administration\b/i, /\/executives\b/i, /\/principals?\b/i,
+    /\/partners?\b/i, /\/founders?\b/i, /\/advisors?\b/i,
+    /\/advisory[-_]?board\b/i, /\/senate\b/i, /\/council\b/i,
+    /\/professors\b/i, /\/dean\b/i, /\/provost\b/i,
+  ];
+  if (score80.some(p => p.test(pathname))) return 80;
+
+  // ── Score 70: Departments / offices / divisions ────────────────
+  const score70 = [
+    /\/departments?\b/i, /\/offices?\b/i, /\/divisions?\b/i,
+    /\/units?\b/i, /\/sections?\b/i, /\/branches?\b/i,
+    /\/academics?\b/i, /\/schools?\b/i, /\/colleges?\b/i,
+    /\/centers?\b/i, /\/institutes?\b/i, /\/programs?\b/i,
+  ];
+  if (score70.some(p => p.test(pathname))) return 70;
+
+  // ── Score 50: About sub-pages, research, press, media ──────────
+  const score50 = [
+    /^\/about\/.+/i,    // any sub-page under /about/
+    /\/research\b/i, /\/labs?\b/i, /\/researchers?\b/i,
+    /\/press\b/i, /\/media\b/i, /\/newsroom\b/i,
+    /\/investor\b/i, /\/ir\b/i,
+    /\/company\b/i, /\/corporate\b/i, /\/overview\b/i,
+  ];
+  if (score50.some(p => p.test(pathname))) return 50;
+
+  // ── Score 10: Everything else on the domain ────────────────────
+  return 10;
 }
 
-// ── Common contact paths to always probe ───────────────────────────
+/**
+ * Sort URLs by score (descending), then alphabetically for ties.
+ * Filters out skip URLs (score === -1).
+ */
+function sortByPriority(urls) {
+  const scored = urls.map(url => ({ url, score: scoreUrl(url) }));
+  // Remove skip URLs
+  const valid = scored.filter(s => s.score >= 0);
+  // Sort by score descending, then URL alphabetically
+  valid.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.url.localeCompare(b.url);
+  });
+  return valid.map(s => s.url);
+}
+
+// ── Expanded common contact paths to always probe ──────────────────
 function getCommonContactPaths(baseUrl) {
   const paths = [
-    '/contact', '/contact-us', '/about', '/about-us',
-    '/team', '/our-team', '/meet-the-team', '/staff',
-    '/people', '/directory', '/faculty', '/faculty-directory',
-    '/leadership', '/management', '/administration',
-    '/board', '/board-of-directors',
+    // Contact
+    '/contact', '/contact-us', '/contactus', '/reach-us', '/get-in-touch', '/connect',
+    // About
+    '/about', '/about-us', '/aboutus', '/who-we-are', '/company', '/corporate', '/overview',
+    // Team / People
+    '/team', '/our-team', '/ourteam', '/meet-the-team', '/meet-us', '/our-people',
+    '/staff', '/staff-directory', '/people', '/people-directory', '/members',
+    '/employees', '/personnel',
+    // Leadership / Governance
+    '/leadership', '/management', '/executives', '/board', '/board-of-directors',
+    '/governance', '/advisory-board', '/principals', '/partners', '/founders',
+    // Academic
+    '/faculty', '/faculty-directory', '/professors', '/academics', '/department',
+    '/departments', '/dean', '/provost', '/senate', '/council',
+    // Org structure
+    '/administration', '/offices', '/divisions', '/units', '/branches',
+    '/schools', '/colleges', '/centers', '/institutes', '/programs',
+    // Nested about pages
     '/about/team', '/about/people', '/about/leadership', '/about/contact',
-    '/departments', '/research', '/press', '/media', '/newsroom',
-    '/offices', '/staff-directory', '/employees',
+    '/about/management', '/about/board', '/about/staff', '/about/our-team',
+    // Research / Press
+    '/research', '/press', '/media', '/newsroom', '/investor-relations',
   ];
   return paths.map(p => {
     try { return new URL(p, baseUrl).href; } catch { return null; }
@@ -417,7 +521,6 @@ function getCommonContactPaths(baseUrl) {
 // ── Non-English detection ──────────────────────────────────────────
 function isNonEnglish(text) {
   if (!text || text.length < 2) return false;
-  // Check for non-ASCII-Latin characters (Cyrillic, CJK, Arabic, Devanagari, etc.)
   return /[\u0400-\u04FF\u0600-\u06FF\u0900-\u097F\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\u00C0-\u024F\u1E00-\u1EFF]/.test(text)
     && !/^[a-zA-Z0-9\s.,\-'"@()&;:!/]+$/.test(text);
 }
@@ -425,7 +528,7 @@ function isNonEnglish(text) {
 // ── Batch translate non-English contacts ───────────────────────────
 async function translateContacts(contacts) {
   const toTranslate = [];
-  const indexMap = []; // maps toTranslate index → { contactIdx, field }
+  const indexMap = [];
 
   contacts.forEach((c, ci) => {
     if (c.name && isNonEnglish(c.name)) {
@@ -441,7 +544,6 @@ async function translateContacts(contacts) {
   if (toTranslate.length === 0) return contacts;
 
   try {
-    // Batch translate all at once for efficiency
     const results = await translate(toTranslate, { to: 'en' });
     const translations = Array.isArray(results) ? results : [results];
 
@@ -449,7 +551,6 @@ async function translateContacts(contacts) {
       const { ci, field } = indexMap[i];
       const translated = res.text || res;
       if (translated && typeof translated === 'string' && translated.length > 0) {
-        // Store original in parentheses for reference
         contacts[ci][field] = `${translated} (${contacts[ci][field]})`;
       }
     });
@@ -460,18 +561,52 @@ async function translateContacts(contacts) {
   return contacts;
 }
 
-// ── Main domain scraper ────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// ██  MAIN DOMAIN SCRAPER — TWO-PHASE PRIORITY CRAWL
+// ══════════════════════════════════════════════════════════════════════
+
 async function scrapeDomain(domain, onProgress, options = {}) {
   domain = domain.replace(/^https?:\/\//, '').replace(/\/+$/, '').trim();
 
-  const maxPages = options.maxPages || DEFAULT_MAX_PAGES;
+  const crawlMode = options.crawlMode || 'quick';
+  const maxPages = options.maxPages || (crawlMode === 'deep' ? DEEP_MAX_PAGES : QUICK_MAX_PAGES);
   const maxContacts = options.maxContacts || 0; // 0 = unlimited
 
   const visited = new Set();
-  const toVisit = [];
   const allContacts = [];
   const emailMap = new Map(); // deduplicate as we go
   let pagesScraped = 0;
+  let currentPhase = 1;
+
+  // Helper: check if we've hit our contact limit
+  function isContactLimitReached() {
+    return maxContacts > 0 && allContacts.length >= maxContacts;
+  }
+
+  // Helper: process a page for contacts
+  function processPage(html, url) {
+    const contacts = extractContacts(html, url);
+    contacts.forEach(c => {
+      if (!emailMap.has(c.email)) {
+        emailMap.set(c.email, c);
+        allContacts.push(c);
+      }
+    });
+  }
+
+  // Helper: send progress
+  function emitProgress(currentUrl, queueSize) {
+    if (onProgress) {
+      onProgress({
+        domain,
+        pagesScraped,
+        currentUrl,
+        contactsFound: allContacts.length,
+        queueSize: queueSize || 0,
+        phase: currentPhase,
+      });
+    }
+  }
 
   // ── Resolve the start URL (https → http fallback) ──────────────
   let startUrl = `https://${domain}`;
@@ -482,84 +617,123 @@ async function scrapeDomain(domain, onProgress, options = {}) {
   }
 
   if (!startHtml) {
-    // Could not reach the site at all
     return { domain, pagesScraped: 0, contacts: [] };
   }
 
-  // Process the homepage directly (don't re-fetch)
+  // ── Process the homepage ───────────────────────────────────────
   visited.add(startUrl);
+  // Also mark the alternate protocol as visited
+  const altUrl = startUrl.startsWith('https') ? startUrl.replace('https', 'http') : startUrl.replace('http', 'https');
+  visited.add(altUrl);
   pagesScraped++;
 
-  const homeContacts = extractContacts(startHtml, startUrl);
-  homeContacts.forEach(c => {
-    if (!emailMap.has(c.email)) {
-      emailMap.set(c.email, c);
-      allContacts.push(c);
-    }
-  });
+  processPage(startHtml, startUrl);
+  emitProgress(startUrl, 0);
 
-  if (onProgress) {
-    onProgress({ domain, pagesScraped, currentUrl: startUrl, contactsFound: allContacts.length, queueSize: 0 });
-  }
-
-  // Check contact limit after homepage
-  if (maxContacts > 0 && allContacts.length >= maxContacts) {
+  if (isContactLimitReached()) {
     const limited = allContacts.slice(0, maxContacts);
     await translateContacts(limited);
     return { domain, pagesScraped, contacts: limited };
   }
 
-  // Discover links from homepage and queue them
+  // ── Discover all seed URLs ─────────────────────────────────────
   const homeLinks = discoverLinks(startHtml, startUrl, domain);
-
-  // Also inject common contact paths that may not be linked from the homepage
   const commonPaths = getCommonContactPaths(startUrl);
   const allSeedUrls = [...new Set([...commonPaths, ...homeLinks])].filter(l => !visited.has(l));
-  const prioritized = prioritizeUrls(allSeedUrls);
-  toVisit.push(...prioritized);
 
-  // ── Crawl remaining pages ──────────────────────────────────────
-  while (toVisit.length > 0 && pagesScraped < maxPages) {
-    // Check contact limit before each page
-    if (maxContacts > 0 && allContacts.length >= maxContacts) break;
+  // Score and sort all URLs
+  const sortedUrls = sortByPriority(allSeedUrls);
 
-    const url = toVisit.shift();
+  // Split into Phase 1 (score ≥ 50) and Phase 2 (score < 50, i.e. == 10)
+  const phase1Queue = [];
+  const phase2Queue = [];
+
+  sortedUrls.forEach(url => {
+    const score = scoreUrl(url);
+    if (score >= 50) {
+      phase1Queue.push(url);
+    } else if (score >= 0) {
+      phase2Queue.push(url);
+    }
+    // score === -1 is filtered out by sortByPriority already
+  });
+
+  // ══════════════════════════════════════════════════════════════════
+  // PHASE 1: Priority sweep — contact/team/leadership pages first
+  // ══════════════════════════════════════════════════════════════════
+  currentPhase = 1;
+
+  while (phase1Queue.length > 0 && pagesScraped < maxPages && !isContactLimitReached()) {
+    const url = phase1Queue.shift();
     if (visited.has(url)) continue;
     visited.add(url);
 
-    if (onProgress) {
-      onProgress({
-        domain,
-        pagesScraped,
-        currentUrl: url,
-        contactsFound: allContacts.length,
-        queueSize: toVisit.length
-      });
-    }
+    emitProgress(url, phase1Queue.length + phase2Queue.length);
 
     const pageHtml = await fetchPage(url);
     if (!pageHtml) continue;
 
     pagesScraped++;
+    processPage(pageHtml, url);
 
-    const contacts = extractContacts(pageHtml, url);
-    contacts.forEach(c => {
-      if (!emailMap.has(c.email)) {
-        emailMap.set(c.email, c);
-        allContacts.push(c);
+    // Discover new links from this page and classify them
+    const newLinks = discoverLinks(pageHtml, url, domain).filter(l => !visited.has(l));
+    const scoredNew = sortByPriority(newLinks);
+
+    scoredNew.forEach(newUrl => {
+      const s = scoreUrl(newUrl);
+      if (s >= 50 && !phase1Queue.includes(newUrl)) {
+        phase1Queue.push(newUrl);
+      } else if (s >= 0 && !phase2Queue.includes(newUrl)) {
+        phase2Queue.push(newUrl);
       }
     });
 
-    const newLinks = discoverLinks(pageHtml, url, domain);
-    const newPrioritized = prioritizeUrls(newLinks.filter(l => !visited.has(l)));
-    toVisit.push(...newPrioritized.filter(l => !toVisit.includes(l)));
-
-    if (toVisit.length > 0) {
+    if (phase1Queue.length > 0) {
       await sleep(DELAY_BETWEEN_REQUESTS);
     }
   }
 
-  // Apply contact limit on final output
+  // ══════════════════════════════════════════════════════════════════
+  // PHASE 2: Full-site BFS — traverse remaining pages
+  // ══════════════════════════════════════════════════════════════════
+  currentPhase = 2;
+
+  while (phase2Queue.length > 0 && pagesScraped < maxPages && !isContactLimitReached()) {
+    const url = phase2Queue.shift();
+    if (visited.has(url)) continue;
+    visited.add(url);
+
+    emitProgress(url, phase2Queue.length);
+
+    const pageHtml = await fetchPage(url);
+    if (!pageHtml) continue;
+
+    pagesScraped++;
+    processPage(pageHtml, url);
+
+    // Discover new links — any high-priority ones found late get pushed to front
+    const newLinks = discoverLinks(pageHtml, url, domain).filter(l => !visited.has(l));
+    const scoredNew = sortByPriority(newLinks);
+
+    scoredNew.forEach(newUrl => {
+      const s = scoreUrl(newUrl);
+      if (s >= 50) {
+        // High-priority page found late — push to front of queue
+        if (!phase2Queue.includes(newUrl)) {
+          phase2Queue.unshift(newUrl);
+        }
+      } else if (s >= 0 && !phase2Queue.includes(newUrl)) {
+        phase2Queue.push(newUrl);
+      }
+    });
+
+    if (phase2Queue.length > 0) {
+      await sleep(DELAY_BETWEEN_REQUESTS);
+    }
+  }
+
+  // ── Finalize ───────────────────────────────────────────────────
   const finalContacts = maxContacts > 0 ? allContacts.slice(0, maxContacts) : allContacts;
 
   // Translate non-English names and designations

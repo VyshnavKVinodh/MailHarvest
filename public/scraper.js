@@ -54,6 +54,10 @@
     const clearAllBtn = $('#clearAllBtn');
     const elapsedTimeEl = $('#elapsedTime');
     const inputSection = $('#inputSection');
+    const crawlModeSelector = $('#crawlModeSelector');
+    const crawlModeHint = $('#crawlModeHint');
+
+    let currentCrawlMode = 'quick';
 
     // ── Domain management ─────────────────────────────────────────
     function addDomain(rawValue) {
@@ -196,6 +200,7 @@
                 body: JSON.stringify({
                     domains: state.domains,
                     maxContacts: limitToggle.checked ? parseInt(limitSelect.value) : 0,
+                    crawlMode: currentCrawlMode,
                 }),
             });
             if (!response.ok) throw new Error('Server error: ' + response.status);
@@ -213,10 +218,13 @@
                     renderDomainProgress(domainStatus, domainInfo);
                     let pg = 0, ct = 0;
                     Object.values(domainInfo).forEach(v => { pg += v.pages; ct += v.contacts; });
+                    const phaseLabel = data.phase === 1 ? '⚡ Priority' : '🌐 Full Site';
+                    const queueInfo = data.queueSize > 0 ? ` · Queue: ${data.queueSize}` : '';
                     progressStats.innerHTML = `
+                    <span>Phase: <span class="stat-value">${phaseLabel}</span></span>
                     <span>Domains: <span class="stat-value">${completedDomains}/${totalDomains}</span></span>
                     <span>Pages: <span class="stat-value">${pg}</span></span>
-                    <span>Contacts: <span class="stat-value">${ct}</span></span>`;
+                    <span>Contacts: <span class="stat-value">${ct}</span>${queueInfo}</span>`;
                 },
                 'domain-done': (data) => {
                     completedDomains++;
@@ -583,6 +591,16 @@
         } else {
             limitSelectWrapper.classList.add('hidden');
         }
+    });
+
+    // Crawl mode selector
+    crawlModeSelector.querySelectorAll('.crawl-mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            crawlModeSelector.querySelectorAll('.crawl-mode-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentCrawlMode = btn.dataset.mode;
+            crawlModeHint.textContent = currentCrawlMode === 'deep' ? '200 pages · thorough' : '30 priority pages';
+        });
     });
 
     document.addEventListener('keydown', (e) => {

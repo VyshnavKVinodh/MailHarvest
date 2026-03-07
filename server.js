@@ -14,7 +14,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ── POST /api/scrape-stream (SSE) ──────────────────────────────
 app.post('/api/scrape-stream', async (req, res) => {
-    const { domains, maxContacts } = req.body;
+    const { domains, maxContacts, crawlMode } = req.body;
     if (!domains || !Array.isArray(domains) || domains.length === 0) {
         return res.status(400).json({ error: 'No domains provided.' });
     }
@@ -22,7 +22,7 @@ app.post('/api/scrape-stream', async (req, res) => {
         .map(d => String(d).trim().replace(/^https?:\/\//, '').replace(/\/+$/, ''))
         .filter(d => d.length > 0);
     if (cleanDomains.length === 0) return res.status(400).json({ error: 'No valid domains.' });
-    const scrapeOptions = { maxContacts: parseInt(maxContacts) || 0 };
+    const scrapeOptions = { maxContacts: parseInt(maxContacts) || 0, crawlMode: crawlMode || 'quick' };
 
     res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -47,6 +47,8 @@ app.post('/api/scrape-stream', async (req, res) => {
                     pagesScraped: progress.pagesScraped,
                     contactsFound: progress.contactsFound,
                     currentUrl: progress.currentUrl,
+                    queueSize: progress.queueSize || 0,
+                    phase: progress.phase || 1,
                 });
             }, scrapeOptions);
             totalPages += result.pagesScraped;
