@@ -31,6 +31,10 @@ function randomUA() {
 // ── Email regex ────────────────────────────────────────────────────
 const EMAIL_REGEX = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
 
+// ── Phone regex ────────────────────────────────────────────────────
+// Matches international formats: +1 (555) 123-4567, +91-9876543210, (555) 123-4567, 555.123.4567, etc.
+const PHONE_REGEX = /(?:\+?\d{1,4}[\s.-]?)?(?:\(?\d{1,5}\)?[\s.-]?)?\d[\d\s.-]{5,}\d/g;
+
 // Common non-personal emails to filter out
 const JUNK_EMAIL_PATTERNS = [
   /^noreply@/i, /^no-reply@/i, /^donotreply@/i,
@@ -163,11 +167,95 @@ function extractEmails(text) {
   return unique.filter(e => !isJunkEmail(e));
 }
 
-// ── Contact extraction (email + name + designation) ────────────────
+// ── Phone extraction ───────────────────────────────────────────────
+function cleanPhone(raw) {
+  // Strip all non-digit/non-plus characters, keep leading +
+  const digits = raw.replace(/[^\d+]/g, '');
+  // Must have at least 7 digits to be a valid phone
+  const digitCount = digits.replace(/\D/g, '').length;
+  if (digitCount < 7 || digitCount > 15) return null;
+  return digits;
+}
+
+function extractPhones(text) {
+  const matches = text.match(PHONE_REGEX) || [];
+  const cleaned = matches.map(cleanPhone).filter(Boolean);
+  return [...new Set(cleaned)];
+}
+
+// ── LinkedIn passive search URL builder ────────────────────────────
+function buildLinkedInSearchUrl(name) {
+  if (!name || !isPossibleName(name)) return '';
+  // Strip any translation annotations like "Translated (Original)"
+  const cleanName = name.replace(/\s*\(.*\)\s*$/, '').trim();
+  if (!cleanName || cleanName.length < 2) return '';
+  return `https://www.google.com/search?q=site:linkedin.com/in+"${encodeURIComponent(cleanName)}"`;
+}
+
+// ── Find phone number near an element ──────────────────────────────
+function findPhoneInContext($, $el) {
+  // Check the element itself first
+  let text = $el.text();
+  let phones = extractPhones(text);
+  if (phones.length > 0) return phones[0];
+
+  // Check parent hierarchy (up to 4 levels)
+  let $context = $el.parent();
+  for (let i = 0; i < 4; i++) {
+    if ($context.length === 0) break;
+    // Look for tel: links
+    const $tel = $context.find('a[href^="tel:"]').first();
+    if ($tel.length) {
+      const telHref = $tel.attr('href').replace('tel:', '').trim();
+      const cleaned = cleanPhone(telHref);
+      if (cleaned) return cleaned;
+    }
+    // Look for phone in text
+    text = $context.text();
+    phones = extractPhones(text);
+    if (phones.length > 0) return phones[0];
+    $context = $context.parent();
+  }
+
+  // Check siblings
+  const $siblings = $el.siblings();
+  let sibPhone = null;
+  $siblings.each((_, sib) => {
+    if (sibPhone) return;
+    const sibText = $(sib).text();
+    const sp = extractPhones(sibText);
+    if (sp.length > 0) sibPhone = sp[0];
+    // Also check for tel: links in siblings
+    const $telSib = $(sib).find('a[href^="tel:"]').first();
+    if (!sibPhone && $telSib.length) {
+      const cleaned = cleanPhone($telSib.attr('href').replace('tel:', ''));
+      if (cleaned) sibPhone = cleaned;
+    }
+  });
+  return sibPhone || '';
+}
+
+// ── Find phone number inside a card ────────────────────────────────
+function findPhoneInCard($, $card) {
+  // Check tel: links first
+  const $tel = $card.find('a[href^="tel:"]').first();
+  if ($tel.length) {
+    const telHref = $tel.attr('href').replace('tel:', '').trim();
+    const cleaned = cleanPhone(telHref);
+    if (cleaned) return cleaned;
+  }
+  // Fallback: extract from card text
+  const text = $card.text();
+  const phones = extractPhones(text);
+  return phones.length > 0 ? phones[0] : '';
+}
+
+// ── Contact extraction (email + name + designation + phone) ────────
 function extractContacts(html, pageUrl) {
   const $ = cheerio.load(html);
   const contacts = [];
   const foundEmails = new Set();
+  const foundPhones = new Set(); // Track phones to avoid duplication in phone-only pass
 
   // Strategy 1: mailto links
   $('a[href^="mailto:"]').each((_, el) => {
@@ -176,7 +264,9 @@ function extractContacts(html, pageUrl) {
     if (!email || isJunkEmail(email) || !EMAIL_REGEX.test(email) || foundEmails.has(email)) return;
     foundEmails.add(email);
     const context = findContextAroundElement($, $(el));
-    contacts.push({ email, name: context.name || '', designation: context.designation || '', source: pageUrl });
+    const phone = findPhoneInContext($, $(el));
+    if (phone) foundPhones.add(phone);
+    contacts.push({ email, name: context.name || '', designation: context.designation || '', phone: phone || '', source: pageUrl });
   });
 
   // Strategy 2: Team/staff sections
@@ -197,7 +287,9 @@ function extractContacts(html, pageUrl) {
           if (foundEmails.has(email)) return;
           foundEmails.add(email);
           const context = findContextAroundElement($, $(el));
-          contacts.push({ email, name: context.name || '', designation: context.designation || '', source: pageUrl });
+          const phone = findPhoneInContext($, $(el));
+          if (phone) foundPhones.add(phone);
+          contacts.push({ email, name: context.name || '', designation: context.designation || '', phone: phone || '', source: pageUrl });
         });
       });
     } catch { /* skip */ }
@@ -221,7 +313,9 @@ function extractContacts(html, pageUrl) {
           if (foundEmails.has(email)) return;
           foundEmails.add(email);
           const context = findContextInCard($, $(card));
-          contacts.push({ email, name: context.name || '', designation: context.designation || '', source: pageUrl });
+          const phone = findPhoneInCard($, $(card));
+          if (phone) foundPhones.add(phone);
+          contacts.push({ email, name: context.name || '', designation: context.designation || '', phone: phone || '', source: pageUrl });
         });
       });
     } catch { /* skip */ }
@@ -232,25 +326,52 @@ function extractContacts(html, pageUrl) {
     $(table).find('tr').each((_, row) => {
       const rowText = $(row).text();
       const emailsInRow = extractEmails(rowText);
+      const phonesInRow = extractPhones(rowText);
+      const rowPhone = phonesInRow.length > 0 ? phonesInRow[0] : '';
       emailsInRow.forEach(email => {
         if (foundEmails.has(email)) return;
         foundEmails.add(email);
+        if (rowPhone) foundPhones.add(rowPhone);
         const cells = [];
         $(row).find('td, th').each((_, cell) => { cells.push($(cell).text().trim()); });
         const nameCell = cells.find(c => !EMAIL_REGEX.test(c) && c.length > 1 && c.length < 60 && /^[A-Z]/.test(c));
         const desigCell = cells.find(c => c !== nameCell && !EMAIL_REGEX.test(c) && c.length > 1 && c.length < 100);
-        contacts.push({ email, name: nameCell || '', designation: desigCell || '', source: pageUrl });
+        contacts.push({ email, name: nameCell || '', designation: desigCell || '', phone: rowPhone, source: pageUrl });
       });
+      // Phone-only rows: table rows with phone + name but no email
+      if (emailsInRow.length === 0 && rowPhone && !foundPhones.has(rowPhone)) {
+        foundPhones.add(rowPhone);
+        const cells = [];
+        $(row).find('td, th').each((_, cell) => { cells.push($(cell).text().trim()); });
+        const nameCell = cells.find(c => c.length > 1 && c.length < 60 && /^[A-Z]/.test(c) && isPossibleName(c));
+        if (nameCell) {
+          const desigCell = cells.find(c => c !== nameCell && c.length > 1 && c.length < 100);
+          contacts.push({ email: '', name: nameCell || '', designation: desigCell || '', phone: rowPhone, source: pageUrl });
+        }
+      }
     });
   });
 
-  // Strategy 5: Full body fallback
+  // Strategy 5: Full body fallback for emails
   const bodyText = $('body').text();
   const allEmails = extractEmails(bodyText);
   allEmails.forEach(email => {
     if (foundEmails.has(email)) return;
     foundEmails.add(email);
-    contacts.push({ email, name: '', designation: '', source: pageUrl });
+    contacts.push({ email, name: '', designation: '', phone: '', source: pageUrl });
+  });
+
+  // Strategy 6: tel: links — phone-only entries with nearby name/designation
+  $('a[href^="tel:"]').each((_, el) => {
+    const telHref = $(el).attr('href').replace('tel:', '').trim();
+    const phone = cleanPhone(telHref);
+    if (!phone || foundPhones.has(phone)) return;
+    foundPhones.add(phone);
+    const context = findContextAroundElement($, $(el));
+    // Only create phone-only entry if we found a valid name nearby
+    if (context.name && isPossibleName(context.name)) {
+      contacts.push({ email: '', name: context.name || '', designation: context.designation || '', phone, source: pageUrl });
+    }
   });
 
   return contacts;
@@ -574,9 +695,16 @@ async function scrapeDomain(domain, onProgress, options = {}) {
 
   const visited = new Set();
   const allContacts = [];
-  const emailMap = new Map(); // deduplicate as we go
+  const contactMap = new Map(); // deduplicate by composite key (email or phone)
   let pagesScraped = 0;
   let currentPhase = 1;
+
+  // Helper: generate dedup key for a contact
+  function contactKey(c) {
+    if (c.email) return c.email;
+    if (c.phone) return 'phone:' + c.phone;
+    return null; // skip entries with neither
+  }
 
   // Helper: check if we've hit our contact limit
   function isContactLimitReached() {
@@ -587,9 +715,17 @@ async function scrapeDomain(domain, onProgress, options = {}) {
   function processPage(html, url) {
     const contacts = extractContacts(html, url);
     contacts.forEach(c => {
-      if (!emailMap.has(c.email)) {
-        emailMap.set(c.email, c);
+      const key = contactKey(c);
+      if (!key) return; // skip contacts with neither email nor phone
+      if (!contactMap.has(key)) {
+        contactMap.set(key, c);
         allContacts.push(c);
+      } else {
+        // Merge: if existing entry lacks phone/name/designation, fill from new contact
+        const existing = contactMap.get(key);
+        if (!existing.phone && c.phone) existing.phone = c.phone;
+        if (!existing.name && c.name) existing.name = c.name;
+        if (!existing.designation && c.designation) existing.designation = c.designation;
       }
     });
   }
@@ -738,6 +874,11 @@ async function scrapeDomain(domain, onProgress, options = {}) {
 
   // Translate non-English names and designations
   await translateContacts(finalContacts);
+
+  // Generate LinkedIn search URLs for contacts with valid names
+  finalContacts.forEach(c => {
+    c.linkedinUrl = buildLinkedInSearchUrl(c.name);
+  });
 
   return {
     domain,

@@ -7,9 +7,9 @@
 
     const state = {
         domains: [],
-        contacts: [],           // { email, name, designation, domain, source }
+        contacts: [],           // { email, name, designation, phone, linkedinUrl, domain, source }
         filteredContacts: [],
-        selectedEmails: new Set(),
+        selectedKeys: new Set(),  // composite key: email or 'phone:<phone>'
         validationResults: {},   // email → { status, reason, suggestions }
         isLoading: false,
         isValidating: false,
@@ -58,6 +58,11 @@
     const crawlModeHint = $('#crawlModeHint');
 
     let currentCrawlMode = 'quick';
+
+    // Helper: composite key for a contact (email takes priority, else phone)
+    function contactKey(c) {
+        return c.email || ('phone:' + (c.phone || ''));
+    }
 
     // ── Domain management ─────────────────────────────────────────
     function addDomain(rawValue) {
@@ -157,7 +162,7 @@
         if (state.domains.length === 0 || state.isLoading) return;
         state.isLoading = true;
         state.contacts = [];
-        state.selectedEmails.clear();
+        state.selectedKeys.clear();
         state.validationResults = {};
         updateScrapeBtn();
 
@@ -244,7 +249,7 @@
                     }
                     renderStats(data);
                     renderDomainFilterOptions();
-                    state.contacts.forEach(c => state.selectedEmails.add(c.email));
+                    state.contacts.forEach(c => state.selectedKeys.add(contactKey(c)));
                     renderTable();
                     progressSection.classList.add('hidden');
                     resultsSection.classList.remove('hidden');
@@ -281,11 +286,13 @@
         const t = state.contacts.length;
         const wn = state.contacts.filter(c => c.name).length;
         const wd = state.contacts.filter(c => c.designation).length;
+        const wp = state.contacts.filter(c => c.phone).length;
         resultCount.textContent = `${t} contact${t !== 1 ? 's' : ''}`;
         statsGrid.innerHTML = `
       <div class="stat-card violet"><div class="stat-label">Total Contacts</div><div class="stat-number">${t}</div></div>
       <div class="stat-card teal"><div class="stat-label">With Names</div><div class="stat-number">${wn}</div></div>
       <div class="stat-card amber"><div class="stat-label">With Designations</div><div class="stat-number">${wd}</div></div>
+      <div class="stat-card green"><div class="stat-label">With Phone</div><div class="stat-number">${wp}</div></div>
       <div class="stat-card blue"><div class="stat-label">Pages Scraped</div><div class="stat-number">${data.totalPages || 0}</div></div>`;
     }
 
@@ -307,37 +314,44 @@
         document.querySelector('.table-wrapper').classList.remove('hidden');
 
         resultsBody.innerHTML = state.filteredContacts.map((c, i) => {
-            const sel = state.selectedEmails.has(c.email);
-            const vr = state.validationResults[c.email];
-            const statusBadge = getStatusBadge(vr);
+            const key = contactKey(c);
+            const sel = state.selectedKeys.has(key);
+            const vr = c.email ? state.validationResults[c.email] : null;
+            const statusBadge = c.email ? getStatusBadge(vr) : '<span style="color:var(--text-muted)">—</span>';
+            const linkedinCell = c.linkedinUrl
+                ? `<a href="${escA(c.linkedinUrl)}" target="_blank" rel="noopener" title="Search LinkedIn for ${escA(c.name)}" class="linkedin-link">🔗 Search</a>`
+                : '<span style="color:var(--text-muted)">—</span>';
             return `
-        <tr class="${sel ? 'selected' : ''}" data-email="${escA(c.email)}" style="animation:rowIn .3s ease-out ${Math.min(i * 0.015, 0.8)}s both">
-          <td class="th-check"><label class="checkbox-wrapper"><input type="checkbox" ${sel ? 'checked' : ''} data-email="${escA(c.email)}"><span class="checkmark"></span></label></td>
+        <tr class="${sel ? 'selected' : ''}" data-key="${escA(key)}" style="animation:rowIn .3s ease-out ${Math.min(i * 0.015, 0.8)}s both">
+          <td class="th-check"><label class="checkbox-wrapper"><input type="checkbox" ${sel ? 'checked' : ''} data-key="${escA(key)}"><span class="checkmark"></span></label></td>
           <td>${i + 1}</td>
           <td class="name-cell" title="${escA(c.name)}">${esc(c.name) || '<span style="color:var(--text-muted)">—</span>'}</td>
           <td class="designation-cell" title="${escA(c.designation)}">${esc(c.designation) || '<span style="color:var(--text-muted)">—</span>'}</td>
-          <td class="email-cell">${esc(c.email)}</td>
+          <td class="phone-cell">${c.phone ? esc(c.phone) : '<span style="color:var(--text-muted)">—</span>'}</td>
+          <td class="email-cell">${c.email ? esc(c.email) : '<span style="color:var(--text-muted)">—</span>'}</td>
           <td class="status-cell">${statusBadge}</td>
           <td>${esc(c.domain)}</td>
           <td class="source-cell"><a href="${escA(c.source || '')}" target="_blank" rel="noopener" title="${escA(c.source || '')}">${esc(getSourcePath(c.source))}</a></td>
+          <td class="linkedin-cell">${linkedinCell}</td>
         </tr>`;
         }).join('');
 
         resultsBody.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-            cb.addEventListener('change', () => toggleRow(cb.dataset.email, cb.checked));
+            cb.addEventListener('change', () => toggleRow(cb.dataset.key, cb.checked));
         });
         resultsBody.querySelectorAll('tr').forEach(row => {
             row.addEventListener('click', (e) => {
                 if (e.target.tagName === 'A' || e.target.tagName === 'INPUT' || e.target.closest('label')) return;
                 // If clicking the status badge, show validation details
                 if (e.target.closest('.status-badge')) {
-                    const email = row.dataset.email;
-                    showValidationPanel(email);
+                    const key = row.dataset.key;
+                    // Only show validation panel for email-based contacts
+                    if (!key.startsWith('phone:')) showValidationPanel(key);
                     return;
                 }
                 const cb = row.querySelector('input[type="checkbox"]');
                 cb.checked = !cb.checked;
-                toggleRow(row.dataset.email, cb.checked);
+                toggleRow(row.dataset.key, cb.checked);
             });
         });
         updateSelectionUI();
@@ -356,12 +370,13 @@
         const st = statusFilter.value;
         state.filteredContacts = state.contacts.filter(c => {
             const md = !dom || c.domain === dom;
-            const ms = !search || c.email.toLowerCase().includes(search) || (c.name && c.name.toLowerCase().includes(search)) || (c.designation && c.designation.toLowerCase().includes(search)) || c.domain.toLowerCase().includes(search);
+            const ms = !search || (c.email && c.email.toLowerCase().includes(search)) || (c.name && c.name.toLowerCase().includes(search)) || (c.designation && c.designation.toLowerCase().includes(search)) || c.domain.toLowerCase().includes(search) || (c.phone && c.phone.includes(search));
             let mst = true;
             if (st === 'has-name') mst = !!c.name;
             else if (st === 'has-designation') mst = !!c.designation;
+            else if (st === 'has-phone') mst = !!c.phone;
             else if (st) {
-                const vr = state.validationResults[c.email];
+                const vr = c.email ? state.validationResults[c.email] : null;
                 if (st === 'unchecked') mst = !vr;
                 else mst = vr && vr.status === st;
             }
@@ -370,33 +385,33 @@
     }
 
     // ── Selection ─────────────────────────────────────────────────
-    function toggleRow(email, checked) {
-        if (checked) state.selectedEmails.add(email); else state.selectedEmails.delete(email);
-        const row = resultsBody.querySelector(`tr[data-email="${CSS.escape(email)}"]`);
+    function toggleRow(key, checked) {
+        if (checked) state.selectedKeys.add(key); else state.selectedKeys.delete(key);
+        const row = resultsBody.querySelector(`tr[data-key="${CSS.escape(key)}"]`);
         if (row) row.classList.toggle('selected', checked);
         updateSelectionUI();
     }
 
     function selectAll() {
-        state.filteredContacts.forEach(c => state.selectedEmails.add(c.email));
+        state.filteredContacts.forEach(c => state.selectedKeys.add(contactKey(c)));
         resultsBody.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
         resultsBody.querySelectorAll('tr').forEach(r => r.classList.add('selected'));
         updateSelectionUI();
     }
 
     function deselectAll() {
-        state.filteredContacts.forEach(c => state.selectedEmails.delete(c.email));
+        state.filteredContacts.forEach(c => state.selectedKeys.delete(contactKey(c)));
         resultsBody.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
         resultsBody.querySelectorAll('tr').forEach(r => r.classList.remove('selected'));
         updateSelectionUI();
     }
 
     function updateSelectionUI() {
-        const count = state.selectedEmails.size;
+        const count = state.selectedKeys.size;
         selectedCount.textContent = `(${count})`;
         exportBtn.disabled = count === 0;
         const tv = state.filteredContacts.length;
-        const sv = state.filteredContacts.filter(c => state.selectedEmails.has(c.email)).length;
+        const sv = state.filteredContacts.filter(c => state.selectedKeys.has(contactKey(c))).length;
         headerCheckbox.checked = tv > 0 && sv === tv;
         headerCheckbox.indeterminate = sv > 0 && sv < tv;
     }
@@ -412,7 +427,8 @@
         validationSummary.classList.add('hidden');
         validationBar.style.width = '0%';
 
-        const emails = state.contacts.map(c => c.email);
+        // Only validate contacts that have an email
+        const emails = state.contacts.filter(c => c.email).map(c => c.email);
 
         function resetBtn(label) {
             state.isValidating = false;
@@ -455,11 +471,16 @@
     }
 
     function updateRowStatus(email) {
-        const row = resultsBody.querySelector(`tr[data-email="${CSS.escape(email)}"]`);
-        if (!row) return;
-        const vr = state.validationResults[email];
-        const cell = row.querySelector('.status-cell');
-        if (cell) cell.innerHTML = getStatusBadge(vr);
+        // Find row by email — need to look through all rows
+        const rows = resultsBody.querySelectorAll('tr');
+        rows.forEach(row => {
+            const key = row.dataset.key;
+            if (key === email) {
+                const vr = state.validationResults[email];
+                const cell = row.querySelector('.status-cell');
+                if (cell) cell.innerHTML = getStatusBadge(vr);
+            }
+        });
     }
 
     function showValidationSummary() {
@@ -523,11 +544,11 @@
 
     // ── Export ────────────────────────────────────────────────────
     async function exportToExcel() {
-        if (state.selectedEmails.size === 0) return;
-        const selectedRows = state.contacts.filter(c => state.selectedEmails.has(c.email)).map(c => ({
+        if (state.selectedKeys.size === 0) return;
+        const selectedRows = state.contacts.filter(c => state.selectedKeys.has(contactKey(c))).map(c => ({
             ...c,
-            validationStatus: state.validationResults[c.email]?.status || 'unchecked',
-            validationReason: state.validationResults[c.email]?.reason || '',
+            validationStatus: c.email ? (state.validationResults[c.email]?.status || 'unchecked') : '',
+            validationReason: c.email ? (state.validationResults[c.email]?.reason || '') : '',
         }));
         exportBtn.disabled = true;
         const orig = exportBtn.innerHTML;

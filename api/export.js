@@ -23,11 +23,13 @@ module.exports = async function handler(req, res) {
             { header: 'S.No', key: 'sno', width: 8 },
             { header: 'Name', key: 'name', width: 30 },
             { header: 'Designation', key: 'designation', width: 35 },
+            { header: 'Phone', key: 'phone', width: 20 },
             { header: 'Email', key: 'email', width: 40 },
             { header: 'Validation', key: 'validation', width: 14 },
             { header: 'Validation Note', key: 'validationNote', width: 45 },
             { header: 'Domain', key: 'domain', width: 30 },
             { header: 'Source Page', key: 'source', width: 50 },
+            { header: 'LinkedIn', key: 'linkedin', width: 50 },
         ];
 
         const headerRow = sheet.getRow(1);
@@ -41,11 +43,13 @@ module.exports = async function handler(req, res) {
                 sno: index + 1,
                 name: row.name || '',
                 designation: row.designation || '',
+                phone: row.phone || '',
                 email: row.email || '',
                 validation: (row.validationStatus || 'unchecked').toUpperCase(),
                 validationNote: row.validationReason || '',
                 domain: row.domain || '',
                 source: row.source || '',
+                linkedin: row.linkedinUrl || '',
             });
 
             const valCell = dataRow.getCell('validation');
@@ -63,7 +67,7 @@ module.exports = async function handler(req, res) {
             dataRow.alignment = { vertical: 'middle' };
         });
 
-        sheet.autoFilter = { from: 'A1', to: `H${rows.length + 1}` };
+        sheet.autoFilter = { from: 'A1', to: `J${rows.length + 1}` };
 
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', `attachment; filename=mailharvest_${Date.now()}.xlsx`);
