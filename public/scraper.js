@@ -319,7 +319,7 @@
             const vr = c.email ? state.validationResults[c.email] : null;
             const statusBadge = c.email ? getStatusBadge(vr) : '<span style="color:var(--text-muted)">—</span>';
             const linkedinCell = c.linkedinUrl
-                ? `<a href="${escA(c.linkedinUrl)}" target="_blank" rel="noopener" title="Search LinkedIn for ${escA(c.name)}" class="linkedin-link">🔗 Search</a>`
+                ? `<a href="${escA(c.linkedinUrl)}" target="_blank" rel="noopener" title="Find ${escA(c.name)} on LinkedIn" class="linkedin-link">🔗 LinkedIn</a>`
                 : '<span style="color:var(--text-muted)">—</span>';
             return `
         <tr class="${sel ? 'selected' : ''}" data-key="${escA(key)}" style="animation:rowIn .3s ease-out ${Math.min(i * 0.015, 0.8)}s both">

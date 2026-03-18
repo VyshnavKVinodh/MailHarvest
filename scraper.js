@@ -183,13 +183,13 @@ function extractPhones(text) {
   return [...new Set(cleaned)];
 }
 
-// ── LinkedIn passive search URL builder ────────────────────────────
+// ── LinkedIn profile search URL builder ────────────────────────────
 function buildLinkedInSearchUrl(name) {
   if (!name || !isPossibleName(name)) return '';
   // Strip any translation annotations like "Translated (Original)"
   const cleanName = name.replace(/\s*\(.*\)\s*$/, '').trim();
   if (!cleanName || cleanName.length < 2) return '';
-  return `https://www.google.com/search?q=site:linkedin.com/in+"${encodeURIComponent(cleanName)}"`;
+  return `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(cleanName)}`;
 }
 
 // ── Find phone number near an element ──────────────────────────────

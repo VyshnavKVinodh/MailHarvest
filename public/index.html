@@ -34,7 +34,7 @@
         Mail<span class="gradient-text">Harvest</span>
       </h1>
       <p class="hero-subtitle">
-        Extract emails, names &amp; designations from any website domain — then validate every email for deliverability.
+        Extract emails, phone numbers, names, designations &amp; LinkedIn profiles from any website domain — then validate every email for deliverability and export to Excel.
       </p>
 
       <!-- How It Works -->
@@ -52,8 +52,7 @@
               </svg>
             </div>
             <h3>Add Domains</h3>
-            <p>Type website domains one by one (e.g. <strong>example.com</strong>) and click <strong>Add</strong>. Add
-              as many as you need.</p>
+            <p>Type website domains (e.g. <strong>example.com</strong>) and click <strong>Add</strong>, or <strong>paste a list</strong> from Excel. Choose <strong>Quick</strong> (30 pages) or <strong>Deep</strong> (200 pages) crawl mode.</p>
           </div>
 
           <div class="step-card">
@@ -66,8 +65,7 @@
               </svg>
             </div>
             <h3>Scrape &amp; Validate</h3>
-            <p>Click <strong>Start Scraping</strong> and watch live progress. Then <strong>validate</strong> emails to
-              check if they're real, catch-all, or invalid.</p>
+            <p>Click <strong>Start Scraping</strong> to extract emails, phones, names &amp; designations with live progress. Then <strong>validate emails</strong> to check deliverability.</p>
           </div>
 
           <div class="step-card">
@@ -81,13 +79,12 @@
               </svg>
             </div>
             <h3>Export to Excel</h3>
-            <p>Select the contacts you need using checkboxes, then click <strong>Download Excel</strong> to get a
-              formatted <code>.xlsx</code> file.</p>
+            <p>Select contacts, then <strong>Download Excel</strong> to get a formatted <code>.xlsx</code> with Name, Designation, Phone, Email, Validation, LinkedIn, and more.</p>
           </div>
         </div>
       </div>
 
-      <!-- Validation Feature Highlight -->
+      <!-- Feature Highlights -->
       <div class="feature-card">
         <div class="feature-icon">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -98,8 +95,35 @@
         </div>
         <div>
           <h3>Built-in Email Validation</h3>
-          <p>Every scraped email can be verified against real mail servers. MailHarvest checks DNS records, tests
-            deliverability, detects catch-all domains, and suggests fixes for invalid addresses.</p>
+          <p>Every scraped email is verified against real mail servers — DNS MX lookup, SMTP deliverability check, catch-all domain detection, and smart fix suggestions for invalid addresses (80+ known typos).</p>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" />
+          </svg>
+        </div>
+        <div>
+          <h3>Phone &amp; LinkedIn Discovery</h3>
+          <p>Automatically extracts phone numbers from <code>tel:</code> links and page context. Generates LinkedIn profile search links for every named contact. Contacts with only a phone (no email) are still captured.</p>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <path d="m2 12h20" />
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+          </svg>
+        </div>
+        <div>
+          <h3>Smart Two-Phase Crawling</h3>
+          <p>Phase 1 targets high-value pages (Contact, Team, Leadership). Phase 2 crawls remaining pages. Non-English names and designations are auto-translated to English.</p>
         </div>
       </div>
 
@@ -108,10 +132,12 @@
         <h3>💡 Tips for Best Results</h3>
         <ul>
           <li>Enter <strong>just the domain</strong> — no need for <code>https://</code> or trailing slashes</li>
-          <li>MailHarvest prioritizes <strong>About, Team, Contact</strong> pages automatically</li>
-          <li>For large batches (10+ domains), scraping may take a few minutes — progress updates live</li>
+          <li><strong>Paste multiple domains</strong> from Excel — they're added automatically</li>
+          <li>Use <strong>Quick mode</strong> (30 pages) on Vercel, <strong>Deep mode</strong> (200 pages) when running locally</li>
+          <li>MailHarvest prioritizes <strong>About, Team, Contact, Leadership</strong> pages automatically</li>
           <li>Use <strong>Validate Emails</strong> after scraping to check which emails are real</li>
-          <li>Invalid emails show <strong>smart suggestions</strong> for corrections</li>
+          <li>Filter results by <strong>validation status</strong>, <strong>name</strong>, <strong>phone</strong>, or <strong>designation</strong></li>
+          <li>Invalid emails show <strong>smart suggestions</strong> — typo corrections and similar domain hints</li>
         </ul>
       </div>
 
@@ -126,7 +152,7 @@
 
     <footer class="footer">
       <img src="favicon.svg" alt="" width="18" height="18" style="opacity:0.5;vertical-align:middle;margin-right:6px">
-      <span>MailHarvest &mdash; Smart Email Contact Extractor</span>
+      <span>MailHarvest &mdash; Smart Contact Extractor</span>
     </footer>
   </div>
 </body>
