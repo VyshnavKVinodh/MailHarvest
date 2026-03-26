@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="MailHarvest Email Validator — Check if emails are valid, catch-all, or invalid with real-time SMTP verification.">
+  <title>MailHarvest — Email Validator</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="https://cdn-uicons.flaticon.com/2.6.0/uicons-regular-rounded/css/uicons-regular-rounded.css">
+  <link rel="stylesheet" href="https://cdn-uicons.flaticon.com/2.6.0/uicons-solid-rounded/css/uicons-solid-rounded.css">
+</head>
+<body>
+  <!-- Animated Background -->
+  <div class="bg-orbs">
+    <div class="orb"></div>
+    <div class="orb"></div>
+    <div class="orb"></div>
+  </div>
+
+  <!-- Cursor Glow -->
+  <div class="cursor-glow" id="cursorGlow"></div>
+
+  <!-- Navbar -->
+  <nav class="navbar">
+    <a href="/" class="navbar-logo">
+      <img src="/favicon.svg" alt="MailHarvest">
+      <span>MailHarvest</span>
+    </a>
+    <div class="navbar-links">
+      <a href="/">Home</a>
+      <a href="/scraper">Scraper</a>
+    </div>
+  </nav>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Main Content -->
+  <div class="scraper-container">
+
+    <!-- ==================== INPUT SECTION ==================== -->
+    <div class="input-section glass-card" id="inputSection">
+      <div class="card-header">
+        <div class="icon"><i class="fi fi-rr-shield-check"></i></div>
+        <div>
+          <h2>Email Validator</h2>
+          <p class="card-subtitle">Paste or type emails to verify — checks DNS, SMTP deliverability &amp; catch-all status</p>
+        </div>
+      </div>
+
+      <!-- Single email input row -->
+      <div class="domain-input-row">
+        <div class="input-with-icon">
+          <i class="fi fi-rr-envelope input-icon"></i>
+          <input type="text" id="emailInput" placeholder="e.g. john@example.com" autocomplete="off">
+        </div>
+        <button class="btn btn-primary" id="addEmailBtn"><i class="fi fi-rr-plus"></i> Add</button>
+      </div>
+
+      <!-- Bulk paste area -->
+      <div class="validator-bulk-section">
+        <div class="bulk-toggle-row">
+          <button class="btn btn-secondary btn-sm" id="bulkToggleBtn">
+            <i class="fi fi-rr-list"></i> Bulk Paste Mode
+          </button>
+          <span class="text-muted bulk-initially-hidden" id="bulkHint">Paste one email per line, or separated by commas / semicolons</span>
+        </div>
+        <div class="bulk-textarea-wrapper bulk-initially-hidden" id="bulkWrapper">
+          <textarea id="bulkTextarea" rows="6" placeholder="john@example.com&#10;jane@company.org&#10;admin@test.com"></textarea>
+          <button class="btn btn-primary btn-sm" id="addBulkBtn"><i class="fi fi-rr-plus"></i> Add All</button>
+        </div>
+      </div>
+
+      <!-- Email chips list -->
+      <div class="chips-container" id="chipsContainer"></div>
+      <div class="chips-actions chips-initially-hidden" id="chipsActions">
+        <span class="count" id="emailCount">0 emails</span>
+        <button class="clear-all" id="clearAllBtn">Clear all</button>
+      </div>
+
+      <!-- Start Validation Button -->
+      <div class="action-buttons action-full">
+        <button class="btn btn-start-scrape" id="startValidateBtn" disabled>
+          <i class="fi fi-rr-shield-check"></i> Start Validation
+        </button>
+      </div>
+    </div>
+
+    <!-- ==================== PROGRESS SECTION ==================== -->
+    <div class="progress-section glass-card" id="progressSection">
+      <div class="card-header">
+        <div class="icon"><i class="fi fi-rr-hourglass-end"></i></div>
+        <h2>Validating Emails</h2>
+      </div>
+
+      <div class="progress-header">
+        <div class="spinner" id="validateSpinner"></div>
+        <div class="progress-info">
+          <div class="phase-label" id="phaseLabel">Checking emails...</div>
+          <div class="elapsed" id="elapsedTime">Elapsed: 0s</div>
+        </div>
+      </div>
+
+      <div class="progress-bar-container">
+        <div class="progress-bar" id="validateProgressBar"></div>
+      </div>
+
+      <!-- Live dashboard stats -->
+      <div class="progress-stats" id="progressStats">
+        <div class="progress-stat">
+          <span class="progress-stat-value" id="progressCheckedCount">0 / 0</span>
+          <span class="progress-stat-label">Checked</span>
+        </div>
+        <div class="progress-stat">
+          <span class="progress-stat-value validator-stat-valid" id="progressValidCount">0</span>
+          <span class="progress-stat-label">Valid</span>
+        </div>
+        <div class="progress-stat">
+          <span class="progress-stat-value validator-stat-catchall" id="progressCatchallCount">0</span>
+          <span class="progress-stat-label">Catch-all</span>
+        </div>
+        <div class="progress-stat">
+          <span class="progress-stat-value validator-stat-invalid" id="progressInvalidCount">0</span>
+          <span class="progress-stat-label">Invalid</span>
+        </div>
+      </div>
+
+      <!-- Per-email status list -->
+      <div class="domain-status-list" id="emailStatusList"></div>
+    </div>
+
+    <!-- ==================== RESULTS SECTION ==================== -->
+    <div class="results-section" id="resultsSection">
+      <div class="glass-card">
+        <div class="card-header">
+          <div class="icon"><i class="fi fi-rr-chart-histogram"></i></div>
+          <h2>Validation Results</h2>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="stats-grid" id="statsGrid">
+          <div class="stat-card">
+            <div class="stat-value" id="statTotal">0</div>
+            <div class="stat-label">Total Emails</div>
+          </div>
+          <div class="stat-card stat-card-valid">
+            <div class="stat-value" id="statValid">0</div>
+            <div class="stat-label">Valid</div>
+          </div>
+          <div class="stat-card stat-card-catchall">
+            <div class="stat-value" id="statCatchall">0</div>
+            <div class="stat-label">Catch-all</div>
+          </div>
+          <div class="stat-card stat-card-invalid">
+            <div class="stat-value" id="statInvalid">0</div>
+            <div class="stat-label">Invalid</div>
+          </div>
+        </div>
+
+        <!-- Donut Chart Summary -->
+        <div class="validator-donut-row donut-initially-hidden" id="donutRow">
+          <canvas id="donutChart" width="180" height="180"></canvas>
+          <div class="donut-legend" id="donutLegend"></div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="action-buttons validator-action-buttons">
+          <button class="btn btn-success" id="exportBtn">
+            <i class="fi fi-rr-download"></i> Export to Excel
+          </button>
+          <button class="btn btn-secondary" id="selectAllBtn">
+            <i class="fi fi-rr-checkbox"></i> Select All
+          </button>
+          <button class="btn btn-secondary" id="copyValidBtn">
+            <i class="fi fi-rr-copy"></i> Copy Valid Emails
+          </button>
+          <button class="btn btn-secondary" id="newValidateBtn">
+            <i class="fi fi-rr-refresh"></i> New Validation
+          </button>
+        </div>
+
+        <!-- Filter Row -->
+        <div class="filter-row">
+          <input type="text" class="search-input" id="searchInput" placeholder="Search emails...">
+          <select id="statusFilter" title="Filter by validation status" aria-label="Filter by validation status">
+            <option value="">All Status</option>
+            <option value="valid">Valid</option>
+            <option value="catchall">Catch-all</option>
+            <option value="risky">Risky</option>
+            <option value="invalid">Invalid</option>
+          </select>
+        </div>
+
+        <!-- Results Table -->
+        <div class="table-container">
+          <table class="results-table" id="resultsTable">
+            <thead>
+              <tr>
+                <th><input type="checkbox" class="row-checkbox" id="headerCheckbox" title="Select all" aria-label="Select all"></th>
+                <th>S.No</th>
+                <th>Email</th>
+                <th>Status</th>
+                <th>Reason</th>
+                <th>Suggestions</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <div class="footer-content">
+      <img src="/favicon.svg" alt="MailHarvest" class="footer-icon">
+      <span>MailHarvest — Smart Email Contact Extractor</span>
+    </div>
+  </footer>
+
+  <script>
+    // Cursor glow follow
+    const glow = document.getElementById('cursorGlow');
+    document.addEventListener('mousemove', (e) => {
+      glow.style.left = e.clientX + 'px';
+      glow.style.top = e.clientY + 'px';
+      glow.style.opacity = '1';
+    });
+    document.addEventListener('mouseleave', () => {
+      glow.style.opacity = '0';
+    });
+  </script>
+  <script src="/validator-page.js"></script>
+</body>
+</html>

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="MailHarvest Scraper — Extract, validate, and export email contacts from any website.">
+  <title>MailHarvest — Scraper</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="https://cdn-uicons.flaticon.com/2.6.0/uicons-regular-rounded/css/uicons-regular-rounded.css">
+  <link rel="stylesheet" href="https://cdn-uicons.flaticon.com/2.6.0/uicons-solid-rounded/css/uicons-solid-rounded.css">
+</head>
+<body>
+  <!-- Animated Background -->
+  <div class="bg-orbs">
+    <div class="orb"></div>
+    <div class="orb"></div>
+    <div class="orb"></div>
+  </div>
+
+  <!-- Cursor Glow -->
+  <div class="cursor-glow" id="cursorGlow"></div>
+
+  <!-- Navbar -->
+  <nav class="navbar">
+    <a href="/" class="navbar-logo">
+      <img src="/favicon.svg" alt="MailHarvest">
+      <span>MailHarvest</span>
+    </a>
+    <div class="navbar-links">
+      <a href="/">Home</a>
+    </div>
+  </nav>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Main Content -->
+  <div class="scraper-container">
+
+    <!-- ==================== INPUT SECTION ==================== -->
+    <div class="input-section glass-card" id="inputSection">
+      <div class="card-header">
+        <div class="icon"><i class="fi fi-rr-plus"></i></div>
+        <div>
+          <h2>Add Domains</h2>
+          <p class="card-subtitle">Enter website domains to scrape for email contacts</p>
+        </div>
+      </div>
+
+      <div class="domain-input-row">
+        <div class="input-with-icon">
+          <i class="fi fi-rr-world input-icon"></i>
+          <input type="text" id="domainInput" placeholder="e.g. example.com" autocomplete="off">
+        </div>
+        <button class="btn btn-primary" id="addDomainBtn"><i class="fi fi-rr-plus"></i> Add</button>
+      </div>
+
+      <div class="chips-container" id="chipsContainer"></div>
+
+      <div class="chips-actions" id="chipsActions" style="display:none;">
+        <span class="count" id="domainCount">0 domains</span>
+        <button class="clear-all" id="clearAllBtn">Clear all</button>
+      </div>
+
+      <!-- Options -->
+      <div class="options-row">
+        <div class="option-group option-full">
+          <div class="option-label-row">
+            <span class="option-label-icon"><i class="fi fi-rr-chart-simple"></i></span>
+            <label>Limit contacts per domain</label>
+          </div>
+          <div class="option-controls">
+            <label class="toggle-switch">
+              <input type="checkbox" id="limitToggle">
+              <span class="toggle-slider"></span>
+            </label>
+            <select id="limitSelect" disabled>
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="50" selected>50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="option-group option-full">
+          <div class="option-label-row">
+            <span class="option-label-icon"><i class="fi fi-rr-sparkles"></i></span>
+            <label>Crawl Mode</label>
+          </div>
+          <div class="option-controls">
+            <div class="crawl-mode-selector">
+              <button class="crawl-mode-btn active" data-mode="quick" id="modeQuick"><i class="fi fi-rr-bolt"></i> Quick</button>
+              <button class="crawl-mode-btn" data-mode="deep" id="modeDeep"><i class="fi fi-rr-search"></i> Deep</button>
+            </div>
+            <span class="page-count-label" id="pageCountLabel">30 priority pages</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="action-buttons action-full">
+        <button class="btn btn-start-scrape" id="startScrapeBtn" disabled>
+          <i class="fi fi-rr-search"></i> Start Scraping
+        </button>
+      </div>
+    </div>
+
+    <!-- ==================== PROGRESS SECTION ==================== -->
+    <div class="progress-section glass-card" id="progressSection">
+      <div class="card-header">
+        <div class="icon"><i class="fi fi-rr-hourglass-end"></i></div>
+        <h2>Scraping In Progress</h2>
+      </div>
+
+      <div class="progress-header">
+        <div class="spinner" id="scrapeSpinner"></div>
+        <div class="progress-info">
+          <div class="phase-label" id="phaseLabel">Phase 1: Priority Pages</div>
+          <div class="elapsed" id="elapsedTime">Elapsed: 0s</div>
+        </div>
+      </div>
+
+      <div class="progress-bar-container">
+        <div class="progress-bar" id="scrapeProgressBar"></div>
+      </div>
+
+      <!-- Live scraping dashboard stats -->
+      <div class="progress-stats" id="progressStats">
+        <div class="progress-stat">
+          <span class="progress-stat-value" id="domainsCompletedCount">0 / 0</span>
+          <span class="progress-stat-label">Domains</span>
+        </div>
+        <div class="progress-stat">
+          <span class="progress-stat-value" id="liveContactCount">0</span>
+          <span class="progress-stat-label">Contacts</span>
+        </div>
+        <div class="progress-stat">
+          <span class="progress-stat-value" id="livePagesCount">0</span>
+          <span class="progress-stat-label">Pages</span>
+        </div>
+      </div>
+
+      <div class="domain-status-list" id="domainStatusList"></div>
+    </div>
+
+    <!-- ==================== ERROR SECTION ==================== -->
+    <div class="error-section" id="errorSection">
+      <div class="error-title"><i class="fi fi-rr-triangle-warning"></i> Warnings</div>
+      <ul class="error-list" id="errorList"></ul>
+    </div>
+
+    <!-- ==================== RESULTS SECTION ==================== -->
+    <div class="results-section" id="resultsSection">
+      <div class="glass-card">
+        <div class="card-header">
+          <div class="icon"><i class="fi fi-rr-chart-histogram"></i></div>
+          <h2>Results</h2>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="stats-grid" id="statsGrid">
+          <div class="stat-card">
+            <div class="stat-value" id="statTotal">0</div>
+            <div class="stat-label">Total Contacts</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="statNames">0</div>
+            <div class="stat-label">With Names</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="statDesignations">0</div>
+            <div class="stat-label">With Designations</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="statPhones">0</div>
+            <div class="stat-label">With Phone</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="statPages">0</div>
+            <div class="stat-label">Pages Scraped</div>
+          </div>
+        </div>
+
+        <!-- Validation Section -->
+        <div class="validation-section" id="validationSection" style="display:none;">
+          <div class="validation-bar-container">
+            <div class="progress-bar-container">
+              <div class="progress-bar" id="validationProgressBar"></div>
+            </div>
+            <span class="progress-text" id="validationProgressText">0 / 0</span>
+          </div>
+          <div class="validation-summary">
+            <div class="summary-item"><span class="summary-dot valid"></span> Valid: <strong id="validCount">0</strong></div>
+            <div class="summary-item"><span class="summary-dot catchall"></span> Catch-all: <strong id="catchallCount">0</strong></div>
+            <div class="summary-item"><span class="summary-dot invalid"></span> Invalid: <strong id="invalidCount">0</strong></div>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="action-buttons" style="margin-bottom: 20px;">
+          <button class="btn btn-primary" id="validateBtn">
+            <i class="fi fi-rr-shield-check"></i> Validate Emails
+          </button>
+          <button class="btn btn-success" id="exportBtn">
+            <i class="fi fi-rr-download"></i> Export to Excel
+          </button>
+          <button class="btn btn-secondary" id="selectAllBtn">
+            <i class="fi fi-rr-checkbox"></i> Select All
+          </button>
+          <button class="btn btn-secondary" id="newScrapeBtn">
+            <i class="fi fi-rr-refresh"></i> New Scrape
+          </button>
+        </div>
+
+        <!-- Filter Row -->
+        <div class="filter-row">
+          <input type="text" class="search-input" id="searchInput" placeholder="Search name, email, designation...">
+          <select id="domainFilter">
+            <option value="">All Domains</option>
+          </select>
+          <select id="statusFilter">
+            <option value="">All Status</option>
+            <option value="valid">Valid</option>
+            <option value="catchall">Catch-all</option>
+            <option value="invalid">Invalid</option>
+            <option value="unchecked">Unchecked</option>
+            <option value="has-name">Has Name</option>
+            <option value="has-designation">Has Designation</option>
+            <option value="has-phone">Has Phone</option>
+          </select>
+        </div>
+
+        <!-- Results Table -->
+        <div class="table-container">
+          <table class="results-table" id="resultsTable">
+            <thead>
+              <tr>
+                <th><input type="checkbox" class="row-checkbox" id="headerCheckbox"></th>
+                <th>S.No</th>
+                <th>Name</th>
+                <th>Designation</th>
+                <th>Phone</th>
+                <th>Email</th>
+                <th>Status</th>
+                <th>Domain</th>
+                <th>Source</th>
+                <th>LinkedIn</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <div class="footer-content">
+      <img src="/favicon.svg" alt="MailHarvest" class="footer-icon">
+      <span>MailHarvest — Smart Email Contact Extractor</span>
+    </div>
+  </footer>
+
+  <script>
+    // Cursor glow follow
+    const glow = document.getElementById('cursorGlow');
+    document.addEventListener('mousemove', (e) => {
+      glow.style.left = e.clientX + 'px';
+      glow.style.top = e.clientY + 'px';
+      glow.style.opacity = '1';
+    });
+    document.addEventListener('mouseleave', () => {
+      glow.style.opacity = '0';
+    });
+  </script>
+  <script src="/scraper.js"></script>
+</body>
+</html>

@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="MailHarvest — A powerful self-hosted email scraper that extracts contacts from websites, validates emails, and exports to Excel.">
+  <title>MailHarvest — Email Contact Scraper</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="https://cdn-uicons.flaticon.com/2.6.0/uicons-regular-rounded/css/uicons-regular-rounded.css">
+  <link rel="stylesheet" href="https://cdn-uicons.flaticon.com/2.6.0/uicons-solid-rounded/css/uicons-solid-rounded.css">
+</head>
+<body>
+  <!-- Animated Background -->
+  <div class="bg-orbs">
+    <div class="orb"></div>
+    <div class="orb"></div>
+    <div class="orb"></div>
+  </div>
+
+  <!-- Floating Particles -->
+  <div class="particles" id="particles"></div>
+
+  <!-- Cursor Glow -->
+  <div class="cursor-glow" id="cursorGlow"></div>
+
+  <!-- Navbar -->
+  <nav class="navbar">
+    <a href="/" class="navbar-logo">
+      <img src="/favicon.svg" alt="MailHarvest">
+      <span>MailHarvest</span>
+    </a>
+    <div class="navbar-links">
+      <a href="#how-it-works">How It Works</a>
+      <a href="#features">Features</a>
+      <a href="/scraper" class="btn btn-primary btn-nav"><i class="fi fi-rr-rocket-lunch"></i> Launch Scraper</a>
+      <a href="/validator" class="btn btn-secondary btn-nav"><i class="fi fi-rr-shield-check"></i> Email Validator</a>
+    </div>
+  </nav>
+
+  <!-- Landing Content -->
+  <div class="landing-container">
+    <!-- Hero -->
+    <section class="hero">
+      <div class="hero-badge">
+        <i class="fi fi-rr-bolt"></i> SMART CONTACT EXTRACTION TOOL
+      </div>
+
+      <div class="hero-icon-wrapper">
+        <div class="hero-icon-glow"></div>
+        <div class="hero-icon-box">
+          <i class="fi fi-sr-envelope"></i>
+          <div class="hero-icon-gear"><i class="fi fi-rr-settings"></i></div>
+        </div>
+      </div>
+
+      <h1>
+        Mail<span class="gradient-text">Harvest</span>
+      </h1>
+      <p class="hero-subtitle">
+        Extract emails, names &amp; designations from any website domain
+        <br>— then validate every email for deliverability.
+      </p>
+      <div class="hero-buttons">
+        <a href="/scraper" class="btn btn-primary btn-lg" id="launch-btn">
+          <i class="fi fi-rr-rocket-lunch"></i> Launch Scraper
+        </a>
+        <a href="/validator" class="btn btn-secondary btn-lg">
+          <i class="fi fi-rr-shield-check"></i> Email Validator
+        </a>
+        <a href="#how-it-works" class="btn btn-secondary btn-lg">
+          <i class="fi fi-rr-info"></i> Learn More
+        </a>
+      </div>
+    </section>
+
+    <!-- How It Works -->
+    <section class="how-it-works-section" id="how-it-works">
+      <div class="section-label">HOW IT WORKS</div>
+      <div class="steps-grid">
+        <div class="step-card glass-card">
+          <div class="step-number">1</div>
+          <div class="step-icon-circle">
+            <i class="fi fi-rr-world"></i>
+          </div>
+          <h3>Add Domains</h3>
+          <p>Type website domains one by one (e.g. <strong>example.com</strong>) and click <strong>Add</strong>. Add as many as you need.</p>
+        </div>
+
+        <div class="step-card glass-card">
+          <div class="step-number">2</div>
+          <div class="step-icon-circle">
+            <i class="fi fi-rr-search"></i>
+          </div>
+          <h3>Scrape &amp; Validate</h3>
+          <p>Click <strong>Start Scraping</strong> and watch live progress. Then <strong>validate</strong> emails to check if they're real, catch-all, or invalid.</p>
+        </div>
+
+        <div class="step-card glass-card">
+          <div class="step-number">3</div>
+          <div class="step-icon-circle">
+            <i class="fi fi-rr-download"></i>
+          </div>
+          <h3>Export to Excel</h3>
+          <p>Select the contacts you need using checkboxes, then click <strong>Download Excel</strong> to get a formatted .xlsx file.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section class="features-section" id="features">
+      <div class="section-label">KEY FEATURES</div>
+      <h2>Built for Serious Lead Generation</h2>
+      <p class="subtitle">Everything you need to extract, validate, and organize email contacts at scale</p>
+
+      <div class="features-grid">
+        <div class="glass-card feature-card">
+          <div class="feature-icon"><i class="fi fi-rr-shield-check"></i></div>
+          <h3>Built-in Email Validation</h3>
+          <p>Every scraped email can be verified against real mail servers. MailHarvest checks DNS records, tests deliverability, detects catch-all domains, and suggests fixes for invalid addresses.</p>
+        </div>
+
+        <div class="glass-card feature-card">
+          <div class="feature-icon"><i class="fi fi-rr-world"></i></div>
+          <h3>Smart Two-Phase Crawling</h3>
+          <p>Priority algorithm targets contact, team, and leadership pages first, then scans remaining pages. Quick mode (30 pages) or Deep mode (200 pages) with domain reachability pre-check.</p>
+        </div>
+
+        <div class="glass-card feature-card">
+          <div class="feature-icon"><i class="fi fi-rr-envelope"></i></div>
+          <h3>6 Extraction Strategies</h3>
+          <p>Finds emails via mailto links, team sections, profile cards, tables, full-text scan, and phone links. Automatically extracts names, titles, and phone numbers.</p>
+        </div>
+
+        <div class="glass-card feature-card">
+          <div class="feature-icon"><i class="fi fi-rr-chart-histogram"></i></div>
+          <h3>Styled Excel Export</h3>
+          <p>Export to .xlsx with purple headers, color-coded validation status, auto-filters, and all contact fields including LinkedIn profile search links.</p>
+        </div>
+
+        <div class="glass-card feature-card">
+          <div class="feature-icon"><i class="fi fi-rr-globe"></i></div>
+          <h3>Multi-Language Support</h3>
+          <p>Detects non-Latin names and designations, translates them to English via Google Translate, and shows both original and translated text side by side.</p>
+        </div>
+
+        <div class="glass-card feature-card">
+          <div class="feature-icon"><i class="fi fi-rr-lock"></i></div>
+          <h3>100% Self-Hosted</h3>
+          <p>Runs entirely on your local machine. No data leaves your network. No API keys needed. No usage limits. Full control over your scraping pipeline.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tips Section -->
+    <section class="tips-section">
+      <div class="glass-card tips-card">
+        <h3><i class="fi fi-rr-bulb"></i> Tips for Best Results</h3>
+        <ul class="tips-list">
+          <li><i class="fi fi-rr-arrow-small-right"></i> Enter <strong>just the domain</strong> — no need for <code>https://</code> or trailing slashes</li>
+          <li><i class="fi fi-rr-arrow-small-right"></i> MailHarvest prioritizes <strong>About, Team, Contact</strong> pages automatically</li>
+          <li><i class="fi fi-rr-arrow-small-right"></i> For large batches (10+ domains), scraping may take a few minutes — progress updates live</li>
+          <li><i class="fi fi-rr-arrow-small-right"></i> Use <strong>Validate Emails</strong> after scraping to check which emails are real</li>
+          <li><i class="fi fi-rr-arrow-small-right"></i> Invalid emails show <strong>smart suggestions</strong> for corrections</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Apps Section -->
+    <section class="apps-section" id="apps">
+      <div class="section-label">OUR TOOLS</div>
+      <div class="steps-grid apps-grid">
+        <a href="/scraper" class="step-card glass-card app-launch-card visible">
+          <div class="step-icon-circle">
+            <i class="fi fi-rr-rocket-lunch"></i>
+          </div>
+          <h3>Email Scraper</h3>
+          <p>Crawl websites to extract emails, names, designations &amp; phone numbers with smart two-phase crawling.</p>
+          <span class="app-card-cta">Launch Scraper <i class="fi fi-rr-arrow-small-right"></i></span>
+        </a>
+
+        <a href="/validator" class="step-card glass-card app-launch-card visible">
+          <div class="step-icon-circle">
+            <i class="fi fi-rr-shield-check"></i>
+          </div>
+          <h3>Email Validator</h3>
+          <p>Paste your email list and validate each one — check DNS, SMTP deliverability &amp; catch-all status.</p>
+          <span class="app-card-cta">Launch Validator <i class="fi fi-rr-arrow-small-right"></i></span>
+        </a>
+      </div>
+    </section>
+
+    <!-- Call to Action -->
+    <section class="cta-section">
+      <a href="/scraper" class="btn btn-primary btn-lg cta-get-started">
+        <i class="fi fi-rr-arrow-small-right"></i> Get Started
+      </a>
+    </section>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-content">
+      <img src="/favicon.svg" alt="MailHarvest" class="footer-icon">
+      <span>MailHarvest — Smart Email Contact Extractor</span>
+    </div>
+  </footer>
+
+  <script>
+    // Floating particles animation
+    (function() {
+      const container = document.getElementById('particles');
+      const count = 30;
+      for (let i = 0; i < count; i++) {
+        const p = document.createElement('div');
+        p.className = 'particle';
+        p.style.left = Math.random() * 100 + '%';
+        p.style.top = Math.random() * 100 + '%';
+        p.style.animationDelay = (Math.random() * 20) + 's';
+        p.style.animationDuration = (15 + Math.random() * 25) + 's';
+        p.style.width = p.style.height = (2 + Math.random() * 4) + 'px';
+        p.style.opacity = 0.15 + Math.random() * 0.35;
+        container.appendChild(p);
+      }
+    })();
+
+    // Intersection Observer for fade-in animations
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+        }
+      });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll('.step-card, .feature-card, .cta-card').forEach(el => observer.observe(el));
+
+    // Cursor glow follow
+    const glow = document.getElementById('cursorGlow');
+    document.addEventListener('mousemove', (e) => {
+      glow.style.left = e.clientX + 'px';
+      glow.style.top = e.clientY + 'px';
+      glow.style.opacity = '1';
+    });
+    document.addEventListener('mouseleave', () => {
+      glow.style.opacity = '0';
+    });
+  </script>
+</body>
+</html>
