@@ -44,6 +44,8 @@ const validateBtn = document.getElementById('validateBtn');
 const exportBtn = document.getElementById('exportBtn');
 const selectAllBtn = document.getElementById('selectAllBtn');
 const newScrapeBtn = document.getElementById('newScrapeBtn');
+const scrapeCompleteActions = document.getElementById('scrapeCompleteActions');
+const jumpToResultsBtn = document.getElementById('jumpToResultsBtn');
 
 const searchInput = document.getElementById('searchInput');
 const domainFilter = document.getElementById('domainFilter');
@@ -220,6 +222,7 @@ async function startScraping() {
   // Collapse input, show progress
   inputSection.classList.add('collapsed');
   progressSection.classList.add('visible');
+  progressSection.classList.remove('completed');
   resultsSection.classList.remove('visible');
   errorSection.classList.remove('visible');
   errorList.innerHTML = '';
@@ -238,6 +241,7 @@ async function startScraping() {
   let domainsCompleted = 0;
   let liveContacts = 0;
   let livePages = 0;
+  let doneEventReceived = false;
   const domainsCompletedEl = document.getElementById('domainsCompletedCount');
   const liveContactEl = document.getElementById('liveContactCount');
   const livePagesEl = document.getElementById('livePagesCount');
@@ -317,6 +321,10 @@ async function startScraping() {
             }
             el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
           }
+          // Accumulate contacts incrementally from each domain
+          if (data.contacts && data.contacts.length > 0) {
+            contacts.push(...data.contacts);
+          }
           // Update live dashboard
           domainsCompletedEl.textContent = `${domainsCompleted} / ${totalDomains}`;
           liveContactEl.textContent = liveContacts;
@@ -325,16 +333,30 @@ async function startScraping() {
           break;
         }
         case 'done': {
-          contacts = data.contacts || [];
+          doneEventReceived = true;
+          // Done is now a lightweight signal — contacts already accumulated from domain-done
           totalPagesScraped = data.totalPagesScraped || totalPagesScraped;
           onScrapingComplete(totalPagesScraped);
           break;
         }
       }
     });
+
+    // ── Fallback: if the SSE stream ended but 'done' never fired ──
+    if (!doneEventReceived) {
+      // The stream closed without the done signal — show whatever we have
+      if (contacts.length > 0) {
+        showToast('Stream ended — showing accumulated results', 'info');
+      }
+      onScrapingComplete(totalPagesScraped);
+    }
   } catch (err) {
     showToast('Scraping failed: ' + err.message, 'error');
     addError(err.message);
+    // Even on error, show any partial results accumulated so far
+    if (contacts.length > 0) {
+      onScrapingComplete(totalPagesScraped);
+    }
   }
 
   clearInterval(elapsedInterval);
@@ -347,6 +369,12 @@ function onScrapingComplete(totalPagesScraped) {
   if (spinner) spinner.style.display = 'none';
   phaseLabel.textContent = 'Scraping Complete';
   scrapeProgressBar.style.width = '100%';
+
+  // Collapse progress section after a short delay so user sees "Complete"
+  progressSection.classList.add('completed');
+
+  // Show the 'View Results' button in progress section
+  if (scrapeCompleteActions) scrapeCompleteActions.style.display = 'flex';
 
   // Show results
   resultsSection.classList.add('visible');
@@ -367,6 +395,11 @@ function onScrapingComplete(totalPagesScraped) {
   renderTable();
 
   showToast(`Found ${contacts.length} contacts from ${totalPagesScraped} pages`, 'success');
+
+  // Auto-scroll to results section after a brief delay
+  setTimeout(() => {
+    resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 400);
 }
 
 // ============ Table Rendering ============
@@ -392,22 +425,16 @@ function renderTable() {
     tr.dataset.phone = (contact.phone || '').toLowerCase();
     tr.dataset.status = status;
 
-    let sourcePath = '';
-    try {
-      sourcePath = contact.source ? new URL(contact.source).pathname : '';
-    } catch { sourcePath = contact.source || ''; }
-
     tr.innerHTML = `
       <td><input type="checkbox" class="row-checkbox" ${isSelected ? 'checked' : ''} data-key="${key}"></td>
       <td>${idx + 1}</td>
+      <td>${escapeHtml(contact.domain || '—')}</td>
       <td>${escapeHtml(contact.name || '—')}</td>
       <td>${escapeHtml(contact.designation || '—')}</td>
-      <td>${escapeHtml(contact.phone || '—')}</td>
       <td>${escapeHtml(contact.email || '—')}</td>
       <td><span class="status-badge ${status}" data-email="${escapeHtml(contact.email || '')}">${statusLabel(status)}</span></td>
-      <td>${escapeHtml(contact.domain || '—')}</td>
-      <td>${contact.source ? `<a href="${escapeHtml(contact.source)}" target="_blank" class="source-link" title="${escapeHtml(contact.source)}">${escapeHtml(sourcePath)}</a>` : '—'}</td>
-      <td>${contact.linkedinUrl ? `<a href="${escapeHtml(contact.linkedinUrl)}" target="_blank" class="linkedin-link" title="LinkedIn Search"><i class="fi fi-rr-link-alt"></i> LinkedIn</a>` : '—'}</td>
+      <td>${escapeHtml(contact.phone || '—')}</td>
+      <td>${contact.linkedinUrl ? `<a href="${escapeHtml(contact.linkedinUrl)}" target="_blank" class="linkedin-link" title="LinkedIn Profile"><i class="fi fi-rr-link-alt"></i> LinkedIn</a>` : '—'}</td>
     `;
 
     resultsBody.appendChild(tr);
@@ -418,7 +445,7 @@ function renderTable() {
       detailTr.className = 'validation-detail';
       detailTr.dataset.detailFor = contact.email?.toLowerCase() || '';
       detailTr.innerHTML = `
-        <td colspan="10">
+        <td colspan="9">
           <div class="detail-content">
             <div class="detail-reason"><i class="fi fi-rr-document"></i> ${escapeHtml(vResult.reason || '')}</div>
             ${vResult.suggestions && vResult.suggestions.length > 0 ? `
@@ -520,6 +547,7 @@ headerCheckbox.addEventListener('change', () => {
     resultsBody.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = false);
   }
   isAllSelected = headerCheckbox.checked;
+  updateActionButtons();
 });
 
 selectAllBtn.addEventListener('click', () => {
@@ -541,6 +569,7 @@ selectAllBtn.addEventListener('click', () => {
     headerCheckbox.indeterminate = false;
     selectAllBtn.innerHTML = '<i class="fi fi-rr-square"></i> Deselect All';
   }
+  updateActionButtons();
 });
 
 function updateHeaderCheckbox() {
@@ -555,6 +584,45 @@ function updateHeaderCheckbox() {
     headerCheckbox.checked = false;
     headerCheckbox.indeterminate = true;
   }
+  updateActionButtons();
+}
+
+// Update Validate / Export / Delete button labels based on selection
+const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+
+function updateActionButtons() {
+  const count = selectedKeys.size;
+  if (count > 0) {
+    validateBtn.innerHTML = `<i class="fi fi-rr-shield-check"></i> Validate ${count} Selected`;
+    exportBtn.innerHTML = `<i class="fi fi-rr-download"></i> Export ${count} Selected`;
+    if (deleteSelectedBtn) deleteSelectedBtn.style.display = '';
+  } else {
+    validateBtn.innerHTML = '<i class="fi fi-rr-shield-check"></i> Validate All';
+    exportBtn.innerHTML = '<i class="fi fi-rr-download"></i> Export All';
+    if (deleteSelectedBtn) deleteSelectedBtn.style.display = 'none';
+  }
+}
+
+// ============ Delete Selected ============
+if (deleteSelectedBtn) {
+  deleteSelectedBtn.addEventListener('click', () => {
+    if (selectedKeys.size === 0) return;
+    const count = selectedKeys.size;
+    contacts = contacts.filter(c => !selectedKeys.has(getContactKey(c)));
+    selectedKeys.clear();
+    headerCheckbox.checked = false;
+    headerCheckbox.indeterminate = false;
+    renderTable();
+    updateActionButtons();
+
+    // Update stats
+    document.getElementById('statTotal').textContent = contacts.length;
+    document.getElementById('statNames').textContent = contacts.filter(c => c.name).length;
+    document.getElementById('statDesignations').textContent = contacts.filter(c => c.designation).length;
+    document.getElementById('statPhones').textContent = contacts.filter(c => c.phone).length;
+
+    showToast(`Removed ${count} contacts`, 'info');
+  });
 }
 
 // Ctrl+A keyboard shortcut
@@ -621,19 +689,26 @@ function applyFilters() {
 validateBtn.addEventListener('click', startValidation);
 
 async function startValidation() {
-  // Collect unique emails from contacts
-  const emails = [...new Set(contacts.map(c => c.email).filter(Boolean))];
+  // Determine which contacts to validate: selected or all
+  const contactsToValidate = selectedKeys.size > 0
+    ? contacts.filter(c => selectedKeys.has(getContactKey(c)))
+    : contacts;
+
+  // Collect unique emails from the set
+  const emails = [...new Set(contactsToValidate.map(c => c.email).filter(Boolean))];
 
   if (emails.length === 0) {
-    showToast('No emails to validate', 'info');
+    showToast(selectedKeys.size > 0 ? 'No emails in selected contacts' : 'No emails to validate', 'info');
     return;
   }
 
-  // Collect scrapedDomains from contacts
-  const allScrapedDomains = [...new Set(contacts.map(c => c.domain).filter(Boolean))];
+  // Collect scrapedDomains from the relevant contacts
+  const allScrapedDomains = [...new Set(contactsToValidate.map(c => c.domain).filter(Boolean))];
+
+  const selLabel = selectedKeys.size > 0 ? ` (${emails.length} selected)` : '';
 
   validateBtn.disabled = true;
-  validateBtn.innerHTML = '<i class="fi fi-rr-spinner fi-spin"></i> Validating...';
+  validateBtn.innerHTML = `<i class="fi fi-rr-spinner fi-spin"></i> Validating${selLabel}...`;
   validationSection.style.display = 'block';
 
   let validCount = 0, catchallCount = 0, riskyCount = 0, invalidCount = 0;
@@ -676,7 +751,7 @@ async function startValidation() {
   }
 
   validateBtn.disabled = false;
-  validateBtn.innerHTML = '<i class="fi fi-rr-shield-check"></i> Validate Emails';
+  updateActionButtons();
   showToast(`Validation complete: ${validCount} valid, ${catchallCount} catch-all, ${riskyCount} risky, ${invalidCount} invalid`, 'success');
 }
 
@@ -753,13 +828,14 @@ async function exportToExcel() {
   }
 
   exportBtn.disabled = false;
-  exportBtn.innerHTML = '<i class="fi fi-rr-download"></i> Export to Excel';
+  updateActionButtons();
 }
 
 // ============ New Scrape ============
 newScrapeBtn.addEventListener('click', () => {
   inputSection.classList.remove('collapsed');
   progressSection.classList.remove('visible');
+  progressSection.classList.remove('completed');
   resultsSection.classList.remove('visible');
   errorSection.classList.remove('visible');
   contacts = [];
@@ -772,6 +848,9 @@ newScrapeBtn.addEventListener('click', () => {
   validationSection.style.display = 'none';
   const spinner = document.getElementById('scrapeSpinner');
   if (spinner) spinner.style.display = '';
+  if (scrapeCompleteActions) scrapeCompleteActions.style.display = 'none';
+  // Scroll back to top
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
 // ============ Error Helpers ============
@@ -780,4 +859,11 @@ function addError(message) {
   const li = document.createElement('li');
   li.textContent = message;
   errorList.appendChild(li);
+}
+
+// ============ Jump to Results Button ============
+if (jumpToResultsBtn) {
+  jumpToResultsBtn.addEventListener('click', () => {
+    resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 }

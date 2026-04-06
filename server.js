@@ -81,16 +81,19 @@ app.post('/api/scrape-stream', async (req, res) => {
           domain,
           contactCount: 0,
           pagesScraped: 0,
+          contacts: [],
           error: result.error
         });
       } else {
         allContacts.push(...result.contacts);
         totalPagesScraped += result.pagesScraped;
 
+        // Send contacts with each domain-done (incremental, small batches)
         sendEvent('domain-done', {
           domain,
           contactCount: result.contacts.length,
-          pagesScraped: result.pagesScraped
+          pagesScraped: result.pagesScraped,
+          contacts: result.contacts
         });
       }
     } catch (err) {
@@ -98,13 +101,14 @@ app.post('/api/scrape-stream', async (req, res) => {
         domain,
         contactCount: 0,
         pagesScraped: 0,
+        contacts: [],
         error: err.message
       });
     }
   }
 
+  // Lightweight done signal — no giant contacts payload
   sendEvent('done', {
-    contacts: allContacts,
     totalPagesScraped,
     totalContacts: allContacts.length
   });

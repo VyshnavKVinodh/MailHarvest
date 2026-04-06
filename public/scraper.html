@@ -143,6 +143,13 @@
       </div>
 
       <div class="domain-status-list" id="domainStatusList"></div>
+      
+      <!-- Appears after completion -->
+      <div class="scrape-complete-actions" id="scrapeCompleteActions" style="display:none;">
+        <button class="btn btn-primary" id="jumpToResultsBtn">
+          <i class="fi fi-rr-arrow-small-down"></i> View Results
+        </button>
+      </div>
     </div>
 
     <!-- ==================== ERROR SECTION ==================== -->
@@ -201,13 +208,16 @@
         <!-- Action Buttons -->
         <div class="action-buttons" style="margin-bottom: 20px;">
           <button class="btn btn-primary" id="validateBtn">
-            <i class="fi fi-rr-shield-check"></i> Validate Emails
+            <i class="fi fi-rr-shield-check"></i> Validate All
           </button>
           <button class="btn btn-success" id="exportBtn">
-            <i class="fi fi-rr-download"></i> Export to Excel
+            <i class="fi fi-rr-download"></i> Export All
           </button>
           <button class="btn btn-secondary" id="selectAllBtn">
             <i class="fi fi-rr-checkbox"></i> Select All
+          </button>
+          <button class="btn btn-danger" id="deleteSelectedBtn" style="display:none;">
+            <i class="fi fi-rr-trash"></i> Delete Selected
           </button>
           <button class="btn btn-secondary" id="newScrapeBtn">
             <i class="fi fi-rr-refresh"></i> New Scrape
@@ -239,13 +249,12 @@
               <tr>
                 <th><input type="checkbox" class="row-checkbox" id="headerCheckbox"></th>
                 <th>S.No</th>
+                <th>Domain</th>
                 <th>Name</th>
                 <th>Designation</th>
-                <th>Phone</th>
                 <th>Email</th>
                 <th>Status</th>
-                <th>Domain</th>
-                <th>Source</th>
+                <th>Phone</th>
                 <th>LinkedIn</th>
               </tr>
             </thead>

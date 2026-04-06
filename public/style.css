@@ -514,6 +514,16 @@ body {
   transform: none !important;
 }
 
+.btn-danger {
+  background: linear-gradient(135deg, var(--red), #a71d2a);
+  color: white;
+}
+
+.btn-danger:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(220, 53, 69, 0.3);
+}
+
 /* ============ Section Labels ============ */
 .section-label {
   text-align: center;
@@ -1111,10 +1121,45 @@ body {
 .progress-section {
   margin-bottom: 24px;
   display: none;
+  transition: max-height 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.4s ease,
+              padding 0.4s ease,
+              margin 0.4s ease;
+  overflow: hidden;
 }
 
 .progress-section.visible {
   display: block;
+}
+
+/* After scraping completes, collapse progress to a compact summary */
+.progress-section.completed {
+  max-height: 120px;
+  overflow: hidden;
+  opacity: 0.7;
+  padding-top: 16px;
+  padding-bottom: 16px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(40, 167, 69, 0.2);
+  background: rgba(40, 167, 69, 0.05);
+  border-radius: var(--radius-md);
+}
+
+.progress-section.completed:hover {
+  opacity: 1;
+}
+
+.progress-section.completed .domain-status-list {
+  display: none;
+}
+
+.progress-section.completed .card-header {
+  margin-bottom: 8px;
+}
+
+.progress-section.completed .card-header h2::after {
+  content: ' ✓';
+  color: var(--green);
 }
 
 .progress-header {
@@ -1254,6 +1299,19 @@ body {
   color: var(--text-muted);
   font-style: italic;
   font-size: 0.75rem;
+}
+
+/* Scrape Complete Actions */
+.scrape-complete-actions {
+  display: none;
+  justify-content: center;
+  padding-top: 16px;
+  margin-top: 16px;
+  border-top: 1px solid var(--glass-border);
+}
+
+.scrape-complete-actions .btn {
+  animation: fadeInUp 0.4s ease;
 }
 
 /* ============ Error/Warning Section ============ */
