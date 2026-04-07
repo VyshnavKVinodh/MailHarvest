@@ -2,6 +2,17 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const https = require('https');
 const { translate } = require('google-translate-api-x');
+// Playwright is lazy-loaded — see launchBrowser()
+// This prevents the entire scraper from crashing if Playwright isn't installed
+let chromium = null;
+let playwrightAvailable = false;
+try {
+  chromium = require('playwright').chromium;
+  playwrightAvailable = true;
+} catch (err) {
+  console.log('[Scraper] Playwright not available — browser fallback disabled. Cheerio scraping will work normally.');
+  console.log('[Scraper] To enable JS rendering fallback, run: npm install playwright && npx playwright install chromium');
+}
 
 // ============================================================
 // CRITICAL: Two separate email regex patterns
@@ -664,6 +675,265 @@ async function translateContacts(contacts) {
   return contacts;
 }
 
+// ============================================================
+// Playwright Browser Lifecycle Management
+// ============================================================
+let browserInstance = null;
+let browserIdleTimer = null;
+const BROWSER_IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+
+async function launchBrowser() {
+  if (!playwrightAvailable || !chromium) {
+    throw new Error('Playwright not available');
+  }
+  if (browserInstance && browserInstance.isConnected()) return browserInstance;
+  console.log('[Scraper] Launching headless Chromium via Playwright...');
+  browserInstance = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+  });
+  console.log('[Scraper] Chromium launched successfully');
+  resetBrowserIdleTimer();
+  return browserInstance;
+}
+
+function resetBrowserIdleTimer() {
+  if (browserIdleTimer) clearTimeout(browserIdleTimer);
+  browserIdleTimer = setTimeout(async () => {
+    await closeBrowser();
+  }, BROWSER_IDLE_TIMEOUT);
+}
+
+async function closeBrowser() {
+  if (browserIdleTimer) { clearTimeout(browserIdleTimer); browserIdleTimer = null; }
+  if (browserInstance) {
+    try {
+      await browserInstance.close();
+      console.log('[Scraper] Chromium browser closed');
+    } catch (err) {
+      console.log('[Scraper] Error closing browser:', err.message);
+    }
+    browserInstance = null;
+  }
+}
+
+/**
+ * Fetch a page using Playwright headless browser (renders JavaScript)
+ * Used as fallback when Cheerio can't extract contacts from JS-heavy sites
+ */
+async function fetchPageWithBrowser(url, timeoutMs = 20000) {
+  try {
+    const browser = await launchBrowser();
+    const context = await browser.newContext({
+      userAgent: USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)],
+      ignoreHTTPSErrors: true,
+      viewport: { width: 1280, height: 800 }
+    });
+    const page = await context.newPage();
+
+    try {
+      // Navigate and wait for network to settle
+      await page.goto(url, { waitUntil: 'networkidle', timeout: timeoutMs });
+
+      // Scroll down to trigger lazy-loaded content
+      await page.evaluate(async () => {
+        const delay = ms => new Promise(r => setTimeout(r, ms));
+        for (let i = 0; i < 5; i++) {
+          window.scrollBy(0, window.innerHeight);
+          await delay(300);
+        }
+        window.scrollTo(0, 0);
+      });
+
+      // Click any visible "Load More" / "Show All" buttons
+      const loadMoreSelectors = [
+        'button:has-text("Load More")', 'button:has-text("Show More")',
+        'button:has-text("Show All")', 'button:has-text("View All")',
+        'a:has-text("Load More")', 'a:has-text("Show More")',
+        'a:has-text("Show All")', 'a:has-text("View All")',
+        '[class*="load-more"]', '[class*="show-more"]', '[class*="view-all"]'
+      ];
+
+      for (const sel of loadMoreSelectors) {
+        try {
+          const btn = page.locator(sel).first();
+          if (await btn.isVisible({ timeout: 500 })) {
+            await btn.click();
+            await page.waitForTimeout(1500); // Wait for content to load
+            console.log(`[Scraper/Browser] Clicked "Load More" button: ${sel}`);
+          }
+        } catch { /* button not found or not clickable — fine */ }
+      }
+
+      // Wait a bit for any final renders
+      await page.waitForTimeout(500);
+
+      // Get fully rendered HTML
+      const html = await page.content();
+      resetBrowserIdleTimer();
+      return html;
+    } finally {
+      await context.close();
+    }
+  } catch (err) {
+    console.log(`[Scraper/Browser] Failed to fetch ${url}: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Scrape a domain using Playwright browser rendering
+ * This is the fallback path — only called when Cheerio finds < 2 contacts
+ */
+async function scrapeDomainWithBrowser(domain, baseUrl, options = {}) {
+  const {
+    crawlMode = 'quick',
+    maxContacts = 0,
+    onProgress = () => { }
+  } = options;
+
+  const baseDomain = domain.replace(/^www\./, '');
+  const DELAY_BETWEEN_REQUESTS = 500; // Slower for browser — be polite
+  const maxPages = Math.min(crawlMode === 'deep' ? 50 : 15, 50); // Fewer pages for browser mode
+
+  const visitedUrls = new Set();
+  const queuedUrls = new Set();
+  const allContacts = new Map();
+  const urlQueue = [];
+
+  function enqueueUrl(url, score) {
+    const normalized = normalizeUrl(url);
+    if (queuedUrls.has(normalized)) return;
+    if (getUrlScore(normalized) === -1) return;
+    queuedUrls.add(normalized);
+    urlQueue.push({ url: normalized, score: score || getUrlScore(normalized) });
+  }
+
+  function addContact(contact) {
+    const email = contact.email ? contact.email.toLowerCase().trim() : '';
+    const phone = contact.phone || '';
+    const key = email || (phone ? 'phone:' + phone : '');
+    if (!key) return;
+    if (allContacts.has(key)) {
+      const existing = allContacts.get(key);
+      if (!existing.name && contact.name) existing.name = contact.name;
+      if (!existing.designation && contact.designation) existing.designation = contact.designation;
+      if (!existing.phone && contact.phone) existing.phone = contact.phone;
+      if (!existing.linkedinUrl && contact.linkedinUrl) existing.linkedinUrl = contact.linkedinUrl;
+    } else {
+      allContacts.set(key, { ...contact });
+    }
+  }
+
+  let pagesScraped = 0;
+  let consecutiveFailures = 0;
+
+  // Process homepage with browser
+  onProgress({ phase: 3, pagesScraped: 0, queueSize: 0, contactCount: 0, status: 'Rendering homepage with browser...' });
+  visitedUrls.add(baseUrl);
+  queuedUrls.add(baseUrl);
+
+  const homepageHtml = await fetchPageWithBrowser(baseUrl);
+  if (homepageHtml) {
+    pagesScraped++;
+    try {
+      const $ = cheerio.load(homepageHtml);
+      const pageContacts = extractContacts($, baseUrl);
+      for (const contact of pageContacts) {
+        contact.domain = baseDomain;
+        addContact(contact);
+      }
+      const homeLinks = extractLinks($, baseUrl, baseDomain);
+      for (const link of homeLinks) {
+        enqueueUrl(link);
+      }
+      console.log(`[Scraper/Browser] Homepage: ${pageContacts.length} contacts, ${homeLinks.size || 0} links`);
+    } catch (err) {
+      console.log(`[Scraper/Browser] Error processing homepage:`, err.message);
+    }
+  }
+
+  // Seed with high-priority contact paths only
+  const protocol = baseUrl.startsWith('https') ? 'https' : 'http';
+  const seedBase = `${protocol}://${domain}`;
+  const HIGH_PRIORITY_PATHS = [
+    '/contact', '/contact-us', '/about', '/about-us', '/team', '/our-team',
+    '/people', '/staff', '/leadership', '/faculty', '/directory',
+    '/about/team', '/about/people', '/about/leadership', '/about/contact'
+  ];
+  for (const path of HIGH_PRIORITY_PATHS) {
+    enqueueUrl(`${seedBase}${path}`, 90);
+  }
+
+  // Sort and crawl
+  while (urlQueue.length > 0 && pagesScraped < maxPages) {
+    urlQueue.sort((a, b) => b.score - a.score);
+
+    if (consecutiveFailures >= 3) {
+      console.log(`[Scraper/Browser] Circuit breaker on ${domain}`);
+      break;
+    }
+
+    if (maxContacts > 0 && allContacts.size >= maxContacts) break;
+
+    const { url } = urlQueue.shift();
+    if (visitedUrls.has(url)) continue;
+    visitedUrls.add(url);
+
+    const html = await fetchPageWithBrowser(url);
+    if (!html) {
+      consecutiveFailures++;
+      continue;
+    }
+    consecutiveFailures = 0;
+    pagesScraped++;
+
+    try {
+      const $ = cheerio.load(html);
+      const pageContacts = extractContacts($, url);
+      for (const contact of pageContacts) {
+        contact.domain = baseDomain;
+        addContact(contact);
+      }
+      const links = extractLinks($, url, baseDomain);
+      for (const link of links) {
+        enqueueUrl(link);
+      }
+
+      onProgress({
+        phase: 3,
+        pagesScraped,
+        queueSize: urlQueue.length,
+        contactCount: allContacts.size,
+        currentUrl: url,
+        status: `Browser: ${pagesScraped} pages, ${allContacts.size} contacts`
+      });
+    } catch (err) {
+      console.log(`[Scraper/Browser] Error processing ${url}:`, err.message);
+    }
+
+    if (urlQueue.length > 0) {
+      await new Promise(r => setTimeout(r, DELAY_BETWEEN_REQUESTS));
+    }
+  }
+
+  let contacts = Array.from(allContacts.values());
+
+  for (const contact of contacts) {
+    if (contact.name && !contact.linkedinUrl) {
+      contact.linkedinUrl = generateLinkedInUrl(contact.name) || '';
+    }
+  }
+
+  try {
+    contacts = await translateContacts(contacts);
+  } catch (err) {
+    console.log('[Scraper/Browser] Translation failed:', err.message);
+  }
+
+  return { contacts, pagesScraped };
+}
+
 /**
  * Main scraping function
  * @param {string} domain - Domain to scrape
@@ -854,6 +1124,45 @@ async function scrapeDomain(domain, options = {}) {
   // Convert contacts map to array
   let contacts = Array.from(allContacts.values());
 
+  // ──────────────────────────────────────────────────────────
+  // PLAYWRIGHT FALLBACK: If Cheerio found < 2 contacts,
+  // retry with headless browser for JS-rendered pages
+  // ──────────────────────────────────────────────────────────
+  if (contacts.length < 2 && playwrightAvailable) {
+    console.log(`[Scraper] Only ${contacts.length} contact(s) found via Cheerio on ${domain} — retrying with Playwright browser`);
+    onProgress({ phase: 0, pagesScraped, queueSize: 0, contactCount: contacts.length, status: 'Retrying with JS rendering...' });
+
+    try {
+      const browserResult = await scrapeDomainWithBrowser(domain, baseUrl, {
+        crawlMode,
+        maxContacts,
+        onProgress
+      });
+
+      if (browserResult.contacts.length > 0) {
+        // Merge browser contacts with any Cheerio contacts (dedup by key)
+        const mergedMap = new Map();
+        for (const c of contacts) {
+          const key = (c.email ? c.email.toLowerCase() : '') || (c.phone ? 'phone:' + c.phone : '');
+          if (key) mergedMap.set(key, c);
+        }
+        for (const c of browserResult.contacts) {
+          const key = (c.email ? c.email.toLowerCase() : '') || (c.phone ? 'phone:' + c.phone : '');
+          if (key && !mergedMap.has(key)) mergedMap.set(key, c);
+        }
+        contacts = Array.from(mergedMap.values());
+        pagesScraped += browserResult.pagesScraped;
+        console.log(`[Scraper] Browser fallback found ${browserResult.contacts.length} contacts, merged total: ${contacts.length}`);
+      } else {
+        console.log(`[Scraper] Browser fallback also found 0 contacts on ${domain} — moving on`);
+      }
+    } catch (err) {
+      console.log(`[Scraper] Browser fallback failed for ${domain}: ${err.message} — moving on`);
+    }
+  } else if (contacts.length < 2 && !playwrightAvailable) {
+    console.log(`[Scraper] Only ${contacts.length} contact(s) on ${domain} — Playwright not available, skipping browser fallback`);
+  }
+
   // Generate LinkedIn URLs for contacts with valid names
   for (const contact of contacts) {
     if (contact.name && !contact.linkedinUrl) {
@@ -871,4 +1180,4 @@ async function scrapeDomain(domain, options = {}) {
   return { contacts, pagesScraped };
 }
 
-module.exports = { scrapeDomain };
+module.exports = { scrapeDomain, closeBrowser };

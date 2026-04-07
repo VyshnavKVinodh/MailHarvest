@@ -227,6 +227,12 @@ async function startScraping() {
   errorSection.classList.remove('visible');
   errorList.innerHTML = '';
 
+  // Reset progress title and icon
+  const progressTitle = document.getElementById('progressTitle');
+  if (progressTitle) progressTitle.textContent = 'Scraping In Progress';
+  const progressIcon = progressSection.querySelector('.card-header .icon');
+  if (progressIcon) progressIcon.innerHTML = '<i class="fi fi-rr-hourglass-end"></i>';
+
   // Init domain status list
   domainStatusList.innerHTML = domains.map(d => `
     <div class="domain-status-item pending" id="status-${CSS.escape(d)}">
@@ -283,6 +289,8 @@ async function startScraping() {
         case 'domain-progress': {
           if (data.phase === 0) {
             phaseLabel.textContent = data.status || 'Testing domain reachability...';
+          } else if (data.phase === 3) {
+            phaseLabel.textContent = data.status || 'JS Rendering Fallback...';
           } else {
             phaseLabel.textContent = data.phase === 1 ? 'Phase 1: Priority Pages' : 'Phase 2: Scanning All Pages';
           }
@@ -294,6 +302,14 @@ async function startScraping() {
           if (el) {
             if (data.phase === 0) {
               el.querySelector('.domain-detail').textContent = data.status || 'Checking...';
+              // Show browser icon when retrying with JS rendering
+              if (data.status && data.status.includes('JS rendering')) {
+                el.querySelector('.status-icon').innerHTML = '<i class="fi fi-rr-browser fi-spin"></i>';
+              }
+            } else if (data.phase === 3) {
+              el.querySelector('.status-icon').innerHTML = '<i class="fi fi-rr-browser fi-spin"></i>';
+              el.querySelector('.domain-detail').textContent =
+                data.status || `${data.contactCount} contacts • ${data.pagesScraped} pages (browser)`;
             } else {
               el.querySelector('.domain-detail').textContent =
                 `${data.contactCount} contacts • ${data.pagesScraped} pages • Queue: ${data.queueSize}`;
@@ -369,6 +385,12 @@ function onScrapingComplete(totalPagesScraped) {
   if (spinner) spinner.style.display = 'none';
   phaseLabel.textContent = 'Scraping Complete';
   scrapeProgressBar.style.width = '100%';
+
+  // Update progress section title and icon
+  const progressTitle = document.getElementById('progressTitle');
+  if (progressTitle) progressTitle.textContent = 'Scraping Complete ✓';
+  const progressIcon = progressSection.querySelector('.card-header .icon');
+  if (progressIcon) progressIcon.innerHTML = '<i class="fi fi-rr-check-circle"></i>';
 
   // Collapse progress section after a short delay so user sees "Complete"
   progressSection.classList.add('completed');

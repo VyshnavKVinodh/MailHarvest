@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const ExcelJS = require('exceljs');
-const { scrapeDomain } = require('./scraper');
+const { scrapeDomain, closeBrowser } = require('./scraper');
 const { validateEmail } = require('./validator');
 
 const app = express();
@@ -112,6 +112,9 @@ app.post('/api/scrape-stream', async (req, res) => {
     totalPagesScraped,
     totalContacts: allContacts.length
   });
+
+  // Clean up Playwright browser if it was used
+  await closeBrowser();
 
   res.end();
 });
